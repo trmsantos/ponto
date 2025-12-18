@@ -50,8 +50,6 @@ from PIL import Image, ImageEnhance, ImageOps, ImageFilter
 
 connGatewayName = "postgres"
 connMssqlName = "sqlserver"
-connSage100cName = "sage100c"
-dbsage100c = DBSql(connections[connSage100cName].alias)
 dbgw = DBSql(connections[connGatewayName].alias)
 db = DBSql(connections["default"].alias)
 dbmssql = DBSql(connections[connMssqlName].alias)
@@ -298,115 +296,138 @@ def SimulateRecordAdd(request, format=None):
         
     return Response({"record":record})
 
-def processRecord(num, ts):
-    connection = connections[connSage100cName].cursor()
-    sql = f"""
-        SELECT F1.NFUNC, F1.NOME, F1.DEPARTAMENTO, F1.CALENDARIO
-        FROM TRIMTEK_1GEP.dbo.FUNC1 F1
-        WHERE F1.NFUNC = '{num}' AND F1.DEMITIDO = 0
-    """
-    print(f"[DEBUG processRecord] Procurando num='{num}' (string interpolation) em FUNC1")
-    try:
-        connection.execute(sql)
-        row = connection.fetchone()
-        print("[DEBUG processRecord] Row:", row)
-        if row:
-            nfunc, nome, departamento, calendario = row
-            return {
-                "date_ref": ts.strftime("%Y-%m-%d"),
-                "nfunc": nfunc,
-                "nome": nome,
-                "dep": departamento,
-                "tp_hor": calendario
-            }
-        else:
-            print(f"[DEBUG processRecord] NÃO ENCONTROU {num} em FUNC1!")
-            return {
-                "date_ref": ts.strftime("%Y-%m-%d"),
-                "nfunc": None,
-                "dep": None,
-                "tp_hor": None
-            }
-    except Exception as error:
-        print("[ERROR processRecord]:", error)
-        return {
-            "date_ref": ts.strftime("%Y-%m-%d"),
-            "nfunc": None,
-            "dep": None,
-            "tp_hor": None
-        }
-    finally:
-        connection.close()
-
-
-def saveRecord(num, ts, hsh, data, ip):
-    pln = processRecord(num, ts)
+def processRecord(num,ts):
     connection = connections[connMssqlName].cursor()
-    dep = pln.get("dep")
-    tp_hor = pln.get("tp_hor")
+    target_datetime = datetime.today()
+    ts_fw = ts + timedelta(hours = 2)
+    ts_bw = ts - timedelta(hours = 2)
+    week_fw = ts_fw.isocalendar()[1]-1
+    week_bw = ts_bw.isocalendar()[1]-1
+    #week_fw = ts_fw.isocalendar().week-1
+    #week_bw = ts_bw.isocalendar().week-1
+    day_fw = ts_fw.weekday()
+    day_bw = ts_bw.weekday()
+    
+    f = Filters({"num": num,"dts": ts.strftime("%Y-%m-%d") })
+    f.where()
+    f.add(f'num = :num', True)
+    f.add(f'dts = :dts', True)
+    f.value("and")
+    reg = dbmssql.executeSimpleList(lambda: (f'SELECT * from rponto.dbo.time_registration {f.text}'), connection, f.parameters)['rows']
 
+    sql = f"""    
+        select * from (
+        select
+        '{ts_bw.strftime("%Y-%m-%d")}' dt,{week_bw+1} WEEK,YEA_0, REFNUM_0,PLNTYP_0, TYPDAY_1, STUFF(STRTIM0_{day_bw}, 3, 0, ':') STR1, STUFF(ENDTIM0_{day_bw}, 3, 0, ':') END1, STUFF(STRTIM1_{day_bw}, 3, 0, ':') STR2, STUFF(ENDTIM1_{day_bw}, 3, 0, ':') END2
+        from x3peoplesql.[PEOPLELTEK].[EMPLOCTR] CT
+        JOIN x3peoplesql.[PEOPLELTEK].PLANTYP PT ON PT.COD_0 = CT.PLNTYP_0
+        JOIN x3peoplesql.[PEOPLELTEK].TYPWEEK PW ON PW.COD_0 = PT.WEKTYP_{week_bw}
+        WHERE CT.REFNUM_0 = '{num}' AND YEA_0={ts_bw.strftime("%Y")}
+        union
+        select
+        '{ts_fw.strftime("%Y-%m-%d")}' dt,{week_fw+1} WEEK,YEA_0, REFNUM_0,PLNTYP_0, TYPDAY_1, STUFF(STRTIM0_{day_fw}, 3, 0, ':') STR1, STUFF(ENDTIM0_{day_fw}, 3, 0, ':') END1, STUFF(STRTIM1_{day_fw}, 3, 0, ':') STR2, STUFF(ENDTIM1_{day_fw}, 3, 0, ':') END2
+        from x3peoplesql.[PEOPLELTEK].[EMPLOCTR] CT
+        JOIN x3peoplesql.[PEOPLELTEK].PLANTYP PT ON PT.COD_0 = CT.PLNTYP_0
+        JOIN x3peoplesql.[PEOPLELTEK].TYPWEEK PW ON PW.COD_0 = PT.WEKTYP_{week_fw}
+        WHERE CT.REFNUM_0 = '{num}' AND YEA_0={ts_fw.strftime("%Y")}
+        ) PLN
+        UNPIVOT
+        (
+        REC FOR reg IN (STR1,END1,STR2,END2)
+        ) AS unpvt
+        WHERE TYPDAY_1=2        
+    """
+    reg = dbmssql.executeSimpleList(lambda: (sql), connection, {})['rows']
+    previous_date = None
+    exit_tolerance = 30 #minutes
+    #record={"type_mov":None,"date_ref":None,"date_plan":None,"period":-1,"item":ts}
+    record={"date_ref":None}
+    if reg and len(reg)>0:
+        for idx,itm in enumerate(reg):
+
+            if idx==0:
+                 min_date = datetime.strptime(f"""{itm.get("dt")} {itm.get("REC")}""","%Y-%m-%d %H:%M") - timedelta(hours = 2)
+                 max_date = datetime.strptime(f"""{reg[idx+1].get("dt")} {itm.get("REC")}""","%Y-%m-%d %H:%M")
+            elif idx==len(reg)-2 and (idx % 2) == 0:
+                 min_date = datetime.strptime(f"""{itm.get("dt")} {itm.get("REC")}""","%Y-%m-%d %H:%M")
+                 max_date = datetime.strptime(f"""{reg[idx+1].get("dt")} {itm.get("REC")}""","%Y-%m-%d %H:%M") + timedelta(hours = 2)
+            elif (idx % 2) == 0:
+                 min_date = datetime.strptime(f"""{itm.get("dt")} {itm.get("REC")}""","%Y-%m-%d %H:%M")
+                 max_date = datetime.strptime(f"""{reg[idx+1].get("dt")} {itm.get("REC")}""","%Y-%m-%d %H:%M")           
+            if (idx % 2) == 0:
+                  if ts>=min_date:
+                     record["date_ref"] = datetime.strptime(f"""{itm.get("dt")}""","%Y-%m-%d")
+            #         record["date_plan"] = datetime.strptime(f"""{itm.get("dt")} {itm.get("REC")}""","%Y-%m-%d %H:%M")
+            #         record["item"] = ts
+            #         record["min"] = min_date
+            #         record["max"] = max_date
+            #         #record["period"] = record["period"] + 1
+            #         #record["type_mov"] = "in" if (record["period"] % 2) == 0 else "out"
+    if record.get("date_ref") is None:
+        record["date_ref"]=ts.strftime("%Y-%m-%d")
+    return record
+
+def saveRecord(num,ts,hsh,data,ip):
+    pln = processRecord(num,ts)
+    connection = connections[connMssqlName].cursor()
     if hsh is None:
-        f = Filters({"num": num, "dts": pln.get("date_ref")})
+        f = Filters({"num": num,"dts": pln.get("date_ref") 
+        #ts.strftime("%Y-%m-%d") 
+        })
         f.where()
         f.add(f'num = :num', True)
         f.add(f'dts = :dts', True)
         f.value("and")
         reg = dbmssql.executeSimpleList(lambda: (f'SELECT * from rponto.dbo.time_registration {f.text}'), connection, f.parameters)['rows']
-        if len(reg) == 0:
+        if len(reg)==0:
             dti = {
-                "num": f.parameters["num"],
+                "num":f.parameters["num"],
                 "nt": 1,
-                "hsh": hashlib.md5(f"""{f.parameters["num"]}-{ts.strftime("%Y-%m-%d")}""".encode('utf-8')).hexdigest(),
-                "dts": pln.get("date_ref"),
-                "dt": pln.get("date_ref"),
-                f"ss_01": ts.strftime("%Y-%m-%d %H:%M:%S"),
-                f"ts_01": data["timestamp"],
-                f"ty_01": "in",
+                "hsh":hashlib.md5(f"""{f.parameters["num"]}-{ts.strftime("%Y-%m-%d")}""".encode('utf-8')).hexdigest(),
+                "dts": pln.get("date_ref"), #ts.strftime("%Y-%m-%d"),
+                "dt": pln.get("date_ref"), #datetime.strptime(data["timestamp"],"%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d"),
+                f"ss_01":ts.strftime("%Y-%m-%d %H:%M:%S"),
+                f"ts_01":data["timestamp"],
+                f"ty_01":"in",
                 f"auto_01": 1 if data.get("auto") else 0,
-                f"source_01": ip,
-                "dep": dep,
-                "tp_hor": tp_hor
+                f"source_01":ip
             }
-            dml = dbmssql.dml(TypeDml.INSERT, dti, "rponto.dbo.time_registration", None, None, False)
+            dml = dbmssql.dml(TypeDml.INSERT, dti, "rponto.dbo.time_registration",None,None,False)
             dbmssql.execute(dml.statement, connection, dml.parameters)
-            return {"status": "success", "hsh": dti.get("hsh")}
-        else:
+            return {"status":"success","hsh":dti.get("hsh")}
+        else:               
             nt = reg[0].get("nt")
-            if nt == 8:
+            if nt==8:
                 raise Exception("Atingiu o número máximo de registos! Por favor entre em contacto com os Recursos Humanos.")
             dti = {
-                "nt": nt + 1,
-                f"ss_{str(nt+1).zfill(2)}": ts.strftime("%Y-%m-%d %H:%M:%S"),
-                f"ts_{str(nt+1).zfill(2)}": data["timestamp"],
-                f"ty_{str(nt+1).zfill(2)}": "in" if reg[0].get(f"ty_{str(nt).zfill(2)}") == "out" else "out",
+                "nt": nt+1,
+                f"ss_{str(nt+1).zfill(2)}":ts.strftime("%Y-%m-%d %H:%M:%S"),
+                f"ts_{str(nt+1).zfill(2)}":data["timestamp"],
+                f"ty_{str(nt+1).zfill(2)}":"in" if reg[0].get(f"ty_{str(nt).zfill(2)}") == "out" else "out",
                 f"auto_{str(nt+1).zfill(2)}": 1 if data.get("auto") else 0,
-                f"source_{str(nt+1).zfill(2)}": ip,
-                "dep": dep,
-                "tp_hor": tp_hor
+                f"source_{str(nt+1).zfill(2)}": ip
             }
-            f = Filters({"num": num, "hsh": reg[0].get("hsh")})
+            f = Filters({"num": num,"hsh": reg[0].get("hsh")})
             f.where()
             f.add(f'num = :num', True)
             f.add(f'hsh = :hsh', True)
             f.value("and")
-            dml = dbmssql.dml(TypeDml.UPDATE, dti, "rponto.dbo.time_registration", f.parameters, None, False)
+            dml = dbmssql.dml(TypeDml.UPDATE, dti, "rponto.dbo.time_registration",f.parameters,None,False)
             dbmssql.execute(dml.statement, connection, dml.parameters)
-            return {"status": "success", "hsh": reg[0].get("hsh")}
+            return {"status":"success","hsh":reg[0].get("hsh")}
     else:
-        f = Filters({"num": num, "hsh": hsh})
+        f = Filters({"num": num,"hsh": hsh })
         f.where()
         f.add(f'num = :num', True)
         f.add(f'hsh = :hsh', True)
         f.value("and")
         reg = dbmssql.executeSimpleList(lambda: (f'SELECT * from rponto.dbo.time_registration {f.text}'), connection, f.parameters)['rows']
-        if len(reg) > 0:
+        if len(reg)>0:
             nt = reg[0].get("nt")
-            dti = {f"ty_{str(nt).zfill(2)}": data.get("type"), "dep": dep, "tp_hor": tp_hor}
-            dml = dbmssql.dml(TypeDml.UPDATE, dti, "rponto.dbo.time_registration", f.parameters, None, False)
+            dti = {f"ty_{str(nt).zfill(2)}":data.get("type")}
+            dml = dbmssql.dml(TypeDml.UPDATE, dti, "rponto.dbo.time_registration",f.parameters,None,False)
             dbmssql.execute(dml.statement, connection, dml.parameters)
-            return {"status": "success"}
-
-
+            return {"status":"success"}
 
 @api_view(['GET'])
 @renderer_classes([JSONRenderer])
@@ -458,10 +479,7 @@ def filePathByNum(path,num):
             return os.path.join("media",i)
     return None
 
-
-
 def SetUser(request, format=None):
-    print("ededededededede")
     connection = connections[connMssqlName].cursor()
     data = request.data['parameters']
     filter = request.data['filter']
@@ -471,30 +489,30 @@ def SetUser(request, format=None):
     ts = current_time_naive
     try:
         if "save" in data and data["save"]==True:
-            num = filter["num"]
-            func_info = processRecord(num, ts)
-            if not func_info.get("nfunc"):
-                return Response({"status": "error", "title": f"Funcionário {num} não encontrado na base FUNC1"})
             hsh = data.get("hsh") if data.get("hsh") is not None else None
             if hsh is None:
+
+                #Se o colaborador já tiver biometria não tiver sido identificado e não existir outros colaboradores identificados e tiver confirmado....
+                #então adicionar biometria ao colaborador atual...
                 if data.get("learn"):
-                    fname = f"{num}_{int(datetime.timestamp(datetime.now()))}.jpg"
-                    with open(f"{faces_base_path}/{fname}", "wb") as fh:
+                    fname = f"""{filter["num"]}_{int(datetime.timestamp(datetime.now()))}.jpg"""
+                    with open(f"""{faces_base_path}/{fname}""", "wb") as fh:
                         fh.write(base64.b64decode(data["snapshot"].replace('data:image/jpeg;base64,','')))
-                    preProcessImage(f"{faces_base_path}/{fname}").save(os.path.join(cropped_faces_base_path, fname), "JPEG")
-                    addFace(cropped_faces_base_path, fname)
+                    preProcessImage(f"""{faces_base_path}/{fname}""").save(os.path.join(cropped_faces_base_path,fname),"JPEG")
+                    addFace(cropped_faces_base_path,fname)
                 try:
-                    os.makedirs(f"{records_base_path}/{ts.strftime('%Y%m%d')}")
+                    os.makedirs(f"""{records_base_path}/{ts.strftime("%Y%m%d")}""")
                 except FileExistsError:
                     pass
                 try:
-                    os.makedirs(f"{records_base_path}/{ts.strftime('%Y%m%d')}/{num}")
+                    os.makedirs(f"""{records_base_path}/{ts.strftime("%Y%m%d")}/{filter["num"]}""")
                 except FileExistsError:
                     pass
-                with open(f"{records_base_path}/{ts.strftime('%Y%m%d')}/{num}/{ts.strftime('%Y%m%d.%H%M%S')}.jpg", "wb") as fh:
+
+                with open(f"""{records_base_path}/{ts.strftime("%Y%m%d")}/{filter["num"]}/{ts.strftime("%Y%m%d.%H%M%S")}.jpg""", "wb") as fh:
                     fh.write(base64.b64decode(data["snapshot"].replace('data:image/jpeg;base64,','')))
-            # Chama saveRecord tal como em AutoCapture!
-            return Response(saveRecord(num, ts, hsh, data, get_client_ip(request)))
+                                 
+            return(Response(saveRecord(filter["num"],ts,hsh,data,get_client_ip(request))))
         else:
             existsInBd = True
             result = False
@@ -558,13 +576,12 @@ def SetUser(request, format=None):
                 #     valid_filepaths.append(filePathByNum(fotos_base_path,faces.get("nums")[x].get("num")))
                 if len(valid_nums):
                     sql = lambda: (
-                            f"""
-                                SELECT F1.NFUNC, F1.NOME 
-                                FROM TRIMTEK_1GEP.dbo.FUNC1 F1
-                                WHERE F1.DEMITIDO = 0 AND F1.NFUNC IN ({','.join(f"'{w}'" for w in valid_nums)})
-                                ORDER BY F1.NFUNC ASC
-                            """
-                        )
+                        f"""
+                            select DISTINCT e.REFNUM_0, NAM_0,SRN_0 FROM x3peoplesql.PEOPLELTEK.EMPLOID e 
+                            JOIN x3peoplesql.PEOPLELTEK.EMPLOCTR c on c.REFNUM_0 = e.REFNUM_0 
+                            WHERE c.PROPRF_0 = 'STD' AND e.REFNUM_0 IN ({','.join(f"'{w}'" for w in valid_nums)})
+                        """
+                    )
                     response = dbmssql.executeSimpleList(sql, connection, {})
                     if len(response["rows"])>0:
                         valid_names=response["rows"]
@@ -581,26 +598,22 @@ def SetUser(request, format=None):
 
             f = Filters(request.data['filter'])
             f.setParameters({
-                "F1.NFUNC": {"value": lambda v: f"=={v.get('num')}", "field": lambda k, v: f'e.{k}'}
+                "REFNUM_0": {"value": lambda v: f"=={v.get('num')}", "field": lambda k, v: f'e.{k}'}
             }, True)
             f.where(False,"and")
             f.auto()
             f.value("and")
             parameters = {**f.parameters}
             dql = dbmssql.dql(request.data, False,False,[])
-            if valid_nums:
-                    sql = lambda: (
-                            f"""
-                                SELECT F1.NFUNC, F1.NOME 
-                                FROM TRIMTEK_1GEP.dbo.FUNC1 F1
-                                WHERE F1.DEMITIDO = 0 AND F1.NFUNC IN ({','.join(f"'{w}'" for w in valid_nums)})
-                                ORDER BY F1.NFUNC ASC
-                            """
-                        )
-                    response = dbsage100c.executeSimpleList(sql, sage100c_connection, {})
-            else:
-                response = {"rows": []}
-
+            sql = lambda: (
+                f"""
+                    select DISTINCT e.REFNUM_0, NAM_0,SRN_0 FROM x3peoplesql.PEOPLELTEK.EMPLOID e 
+                    JOIN x3peoplesql.PEOPLELTEK.EMPLOCTR c on c.REFNUM_0 = e.REFNUM_0 
+                    WHERE c.PROPRF_0 = 'STD' {f.text}
+                    {dql.limit}
+                """
+            )
+            response = dbmssql.executeSimpleList(sql, connection, parameters)
             return Response({**response,"result":result,"foto":filepath,"valid_nums":valid_nums,"valid_filepaths":valid_filepaths,"valid_names":valid_names,"config":getConfig(),"existsInBd":existsInBd})
     except Exception as error:
         print(error)
@@ -625,122 +638,198 @@ def saveSnapshot(basepath,snapshot,tstamp,suffix="",num=None):
     with open(pth, "wb") as fh:
         fh.write(base64.b64decode(snapshot.replace('data:image/jpeg;base64,','')))
 
-
 def AutoCapture(request, format=None):
-    connection = connections[connMssqlName].cursor()
+    connection = connections[connMssqlName].cursor()    
     data = request.data['parameters']
     filter = request.data['filter']
     ts = datetime.now()
     try:
-        if "save" in data and data["save"] == True:
-            num = filter["num"]
-            # Vai buscar os dados atuais do colaborador (dep e tp_hor)
-            func_info = processRecord(num, ts)
-            if not func_info.get("nfunc"):
-                return Response({"status": "error", "title": f"Funcionário {num} não encontrado na base FUNC1"})
+        if "save" in data and data["save"]==True:
             hsh = data.get("hsh") if data.get("hsh") is not None else None
             if hsh is None:
+
                 try:
-                    os.makedirs(f"{records_base_path}/{ts.strftime('%Y%m%d')}")
+                    os.makedirs(f"""{records_base_path}/{ts.strftime("%Y%m%d")}""")
                 except FileExistsError:
                     pass
                 try:
-                    os.makedirs(f"{records_base_path}/{ts.strftime('%Y%m%d')}/{num}")
+                    os.makedirs(f"""{records_base_path}/{ts.strftime("%Y%m%d")}/{filter["num"]}""")
                 except FileExistsError:
                     pass
-                with open(f"{records_base_path}/{ts.strftime('%Y%m%d')}/{num}/{ts.strftime('%Y%m%d.%H%M%S')}.jpg", "wb") as fh:
+
+                with open(f"""{records_base_path}/{ts.strftime("%Y%m%d")}/{filter["num"]}/{ts.strftime("%Y%m%d.%H%M%S")}.jpg""", "wb") as fh:
                     fh.write(base64.b64decode(data["snapshot"].replace('data:image/jpeg;base64,','')))
-                    
-            return Response(saveRecord(num, ts, hsh, data, get_client_ip(request)))
+            
+            return(Response(saveRecord(filter["num"],ts,hsh,data,get_client_ip(request))))
+                # f = Filters({"num": filter["num"],"dts": ts.strftime("%Y-%m-%d") })
+                # f.where()
+                # f.add(f'num = :num', True)
+                # f.add(f'dts = :dts', True)
+                # f.value("and")
+                # reg = dbmssql.executeSimpleList(lambda: (f'SELECT * from rponto.dbo.time_registration {f.text}'), connection, f.parameters)['rows']
+                # if len(reg)==0:
+                #     dti = {
+                #         "num":f.parameters["num"],
+                #         "nt": 1,
+                #         "hsh":hashlib.md5(f"""{f.parameters["num"]}-{ts.strftime("%Y-%m-%d")}""".encode('utf-8')).hexdigest(),
+                #         "dts":ts.strftime("%Y-%m-%d"),
+                #         "dt":datetime.strptime(data["timestamp"],"%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d"),
+                #         f"ss_01":ts.strftime("%Y-%m-%d %H:%M:%S"),
+                #         f"ts_01":data["timestamp"],
+                #         f"ty_01":"in",
+                #     }
+                #     dml = dbmssql.dml(TypeDml.INSERT, dti, "rponto.dbo.time_registration",None,None,False)
+                #     dbmssql.execute(dml.statement, connection, dml.parameters)
+                #     return Response({"status":"success","hsh":dti.get("hsh")})
+                # else:               
+                #     nt = reg[0].get("nt")
+                #     if nt==8:
+                #         saveSnapshot(records_invalid_base_path,data["snapshot"],ts,"max_records")
+                #         raise Exception("Atingiu o número máximo de registos! Por favor entre em contacto com os Recursos Humanos.")
+                #     dti = {
+                #         "nt": nt+1,
+                #         f"ss_{str(nt+1).zfill(2)}":ts.strftime("%Y-%m-%d %H:%M:%S"),
+                #         f"ts_{str(nt+1).zfill(2)}":data["timestamp"],
+                #         f"ty_{str(nt+1).zfill(2)}":"in" if reg[0].get(f"ty_{str(nt).zfill(2)}") == "out" else "out"
+                #     }
+                #     f = Filters({"num": filter["num"],"hsh": reg[0].get("hsh")})
+                #     f.where()
+                #     f.add(f'num = :num', True)
+                #     f.add(f'hsh = :hsh', True)
+                #     f.value("and")
+                #     dml = dbmssql.dml(TypeDml.UPDATE, dti, "rponto.dbo.time_registration",f.parameters,None,False)
+                #     dbmssql.execute(dml.statement, connection, dml.parameters)
+                #     return Response({"status":"success","hsh":reg[0].get("hsh")})
+            # else:
+            #     f = Filters({"num": filter["num"],"hsh": hsh })
+            #     f.where()
+            #     f.add(f'num = :num', True)
+            #     f.add(f'hsh = :hsh', True)
+            #     f.value("and")
+            #     reg = dbmssql.executeSimpleList(lambda: (f'SELECT * from rponto.dbo.time_registration {f.text}'), connection, f.parameters)['rows']
+            #     if len(reg)>0:
+            #         nt = reg[0].get("nt")
+            #         dti = {f"ty_{str(nt).zfill(2)}":data.get("type")}
+            #         dml = dbmssql.dml(TypeDml.UPDATE, dti, "rponto.dbo.time_registration",f.parameters,None,False)
+            #         dbmssql.execute(dml.statement, connection, dml.parameters)
+            #         return Response({"status":"success"})
+        else:
+            existsInBd = True
+            result = False
+            unknown_encoding = []
+            unknown_image = None
+            #filepath = filePathByNum(fotos_base_path,filter["num"])
+            filepath = None
+            print(f"1. {datetime.now()}")
+            faces = loadFaces(faces_base_path)
+            print(f"2. {datetime.now()}")
+            tmp = tempfile.NamedTemporaryFile(delete=False)
+            try:
+                tmp.write(base64.b64decode(data["snapshot"].replace('data:image/jpeg;base64,','')))
+                ppi = preProcessImage(tmp.name)
+                if ppi is not None:
+                    ppi.save(tmp.name,"JPEG")
+                    unknown_image = face_recognition.load_image_file(tmp)
+                #unknown_image = face_recognition.load_image_file(tmp)
+            finally:
+                tmp.close()
+                os.unlink(tmp.name)
+            print(f"3. {datetime.now()}")
+            if unknown_image is not None:
+                unknown_encoding = face_recognition.face_encodings(unknown_image,None,jitters,model)
+            if len(unknown_encoding)==0:
+                saveSnapshot(records_invalid_base_path,data["snapshot"],ts,"no_face")
+                return Response({"status": "error", "title": "Não foi reconhecida nenhuma face!"})
+            unknown_encoding = unknown_encoding[0]
 
-        # RECONHECIMENTO FACIAL (NÃO-SAVE)
-        existsInBd = True
-        result = False
-        unknown_encoding = []
-        unknown_image = None
-        filepath = None
-        faces = loadFaces(faces_base_path)
-        tmp = tempfile.NamedTemporaryFile(delete=False)
-        try:
-            tmp.write(base64.b64decode(data["snapshot"].replace('data:image/jpeg;base64,','')))
-            ppi = preProcessImage(tmp.name)
-            if ppi is not None:
-                ppi.save(tmp.name, "JPEG")
-                unknown_image = face_recognition.load_image_file(tmp)
-        finally:
-            tmp.close()
-            os.unlink(tmp.name)
-        if unknown_image is not None:
-            unknown_encoding = face_recognition.face_encodings(unknown_image, None, jitters, model)
-        if len(unknown_encoding) == 0:
-            saveSnapshot(records_invalid_base_path, data["snapshot"], ts, "no_face")
-            return Response({"status": "error", "title": "Não foi reconhecida nenhuma face!"})
-        unknown_encoding = unknown_encoding[0]
+            valid_nums = []
+            valid_filepaths = []
+            valid_names = []
+            
+            print(f"4. {datetime.now()}")
+            
+            valid_num = None
+            #results = face_recognition.compare_faces([_f['matrix'] for _f in faces.get("nums")], unknown_encoding,tolerance)
+            
+            distances = face_recognition.face_distance([_f['matrix'] for _f in faces.get("nums")], unknown_encoding)
+            items=[]
+            for idx,x in enumerate(distances):
+                if x<=tolerance:
+                    items.append({"num":faces.get("nums")[idx].get("num"),"distance":x})
+            items = sorted(items, key=lambda x: x["distance"])
+            for idx,x in enumerate(items):
+                if idx==0:
+                    result=True
+                    valid_num=x.get("num")
+                    request.data['filter']["num"] = x.get("num")
+                    filepath=filePathByNum(fotos_base_path,x.get("num"))
+                else:
+                    if x.get("num") != valid_num:
+                        valid_nums.append(x.get("num"))
+                        valid_filepaths.append(filePathByNum(fotos_base_path,x.get("num")))
 
-        valid_nums = []
-        valid_filepaths = []
-        valid_names = []
-        valid_num = None
+            print("#####################-------############################")
+            print(items)
+            print("#####################-------############################")
+            
 
-        distances = face_recognition.face_distance([_f['matrix'] for _f in faces.get("nums")], unknown_encoding)
-        items = []
-        for idx, x in enumerate(distances):
-            if x <= tolerance:
-                items.append({"num": faces.get("nums")[idx].get("num"), "distance": x})
-        items = sorted(items, key=lambda x: x["distance"])
-        for idx, x in enumerate(items):
-            if idx == 0:
-                result = True
-                valid_num = x.get("num")
-                request.data['filter']["num"] = x.get("num")
-                filepath = filePathByNum(fotos_base_path, x.get("num"))
-            else:
-                if x.get("num") != valid_num:
-                    valid_nums.append(x.get("num"))
-                    valid_filepaths.append(filePathByNum(fotos_base_path, x.get("num")))
+            # valid_indexes = [i for i, x in enumerate(results) if x]
+            # for idx,x in enumerate(valid_indexes):
+            #     if idx==0:
+            #         result=True
+            #         valid_num=faces.get("nums")[x].get("num")
+            #         request.data['filter']["num"] = faces.get("nums")[x].get("num")
+            #         filepath=filePathByNum(fotos_base_path,faces.get("nums")[x].get("num"))
+            #     else:
+            #         if faces.get("nums")[x].get("num") != valid_num:
+            #             valid_nums.append(faces.get("nums")[x].get("num"))
+            #             valid_filepaths.append(filePathByNum(fotos_base_path,faces.get("nums")[x].get("num")))
 
-        response = {"rows": []}
-        if len(valid_nums):
-            sage100c_connection = connections[connSage100cName].cursor()
+            print(f"5. {datetime.now()}")
+            if len(valid_nums):
+                sql = lambda: (
+                    f"""
+                        select DISTINCT e.REFNUM_0, NAM_0,SRN_0 FROM x3peoplesql.PEOPLELTEK.EMPLOID e 
+                        JOIN x3peoplesql.PEOPLELTEK.EMPLOCTR c on c.REFNUM_0 = e.REFNUM_0 
+                        WHERE c.PROPRF_0 = 'STD' AND e.REFNUM_0 IN ({','.join(f"'{w}'" for w in valid_nums)})
+                    """
+                )
+                response = dbmssql.executeSimpleList(sql, connection, {})
+                if len(response["rows"])>0:
+                    valid_names=response["rows"]
+            # if existsInBd==False:
+            #     added=False
+            #     if len(valid_indexes)==0:
+            #         with open(f"""{faces_base_path}/{filter["num"]}_.jpg""", "wb") as fh:
+            #             fh.write(base64.b64decode(data["snapshot"].replace('data:image/jpeg;base64,','')))
+            #         added = addFace(faces_base_path,f"""{filter["num"]}_.jpg""")
+            #     return Response({"status": "error", "title": f"""O colaborador indicado não existe no sistema! {"A recolha dos dados biométricos foi efetuada." if added else ""}"""})
+
+            f = Filters(request.data['filter'])
+            f.setParameters({
+                "REFNUM_0": {"value": lambda v: f"=={v.get('num')}", "field": lambda k, v: f'e.{k}'}
+            }, True)
+            f.where(False,"and")
+            f.auto()
+            f.value("and")
+            parameters = {**f.parameters}
+            dql = dbmssql.dql(request.data, False,False,[])
             sql = lambda: (
-                f"SELECT F1.NFUNC, F1.NOME FROM TRIMTEK_1GEP.dbo.FUNC1 F1 WHERE F1.DEMITIDO = 0 AND F1.NFUNC = '{filter['num']}'"
+                f"""
+                    select DISTINCT e.REFNUM_0, NAM_0,SRN_0 FROM x3peoplesql.PEOPLELTEK.EMPLOID e 
+                    JOIN x3peoplesql.PEOPLELTEK.EMPLOCTR c on c.REFNUM_0 = e.REFNUM_0 
+                    WHERE c.PROPRF_0 = 'STD' {f.text}
+                    {dql.limit}
+                """
             )
-            response = dbsage100c.executeSimpleList(sql, sage100c_connection, {})
-            if len(response["rows"]) > 0:
-                valid_names = response["rows"]
-
-        sage100c_connection = connections[connSage100cName].cursor()
-        f = Filters(request.data['filter'])
-        f.setParameters({
-            "NFUNC": {"value": lambda v: f"=={v.get('num')}", "field": lambda k, v: f'F1.{k}'}
-        }, True)
-        f.where(False, "and")
-        f.auto()
-        f.value("and")
-        parameters = {**f.parameters}
-        dql = dbmssql.dql(request.data, False, False, [])
-        sql = lambda: (
-            f"""
-                SELECT F1.NFUNC, F1.NOME 
-                FROM TRIMTEK_1GEP.dbo.FUNC1 F1
-                WHERE F1.DEMITIDO = 0 {f.text}
-                ORDER BY F1.NFUNC ASC
-                {dql.limit}
-            """
-        )
-        print("DBG dbsage100c is:", dbsage100c)
-        response = dbsage100c.executeSimpleList(sql, sage100c_connection, parameters)
-        if result == False and request.data['filter'].get("num") is None:
-            saveSnapshot(records_invalid_base_path, data["snapshot"], ts, "not_identified")
-            return Response({"status": "error", "title": "O sistema não o(a) identificou!"})
-        return Response({**response, "result": result, "num": request.data['filter'].get("num"), "foto": filepath,
-                         "valid_nums": valid_nums, "valid_filepaths": valid_filepaths, "valid_names": valid_names,
-                         "config": getConfig()})
+            response = dbmssql.executeSimpleList(sql, connection, parameters)
+            if result==False and request.data['filter'].get("num") is None:
+                saveSnapshot(records_invalid_base_path,data["snapshot"],ts,"not_identified")
+                return Response({"status": "error", "title": "O sistema não o(a) identificou!"})
+            return Response({**response,"result":result,"num":request.data['filter'].get("num"),"foto":filepath,"valid_nums":valid_nums,"valid_filepaths":valid_filepaths,"valid_names":valid_names,"config":getConfig()})
     except Exception as error:
         print(error)
         return Response({"status": "error", "title": str(error)})
-
-
 
 def BiometriasList(request, format=None):
     bios = []
@@ -748,7 +837,6 @@ def BiometriasList(request, format=None):
         with open('faces.dictionary', 'rb') as faces_file:
             bios = pickle.load(faces_file).get("nums")
     return Response({"rows":bios})
-
 
 def InvalidRecordsList(request, format=None):
     records = []
