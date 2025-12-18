@@ -649,7 +649,18 @@ export default ({ }) => {
 						draft.valid_nums = response.data?.valid_nums;
 						draft.valid_filepaths = response.data?.valid_filepaths;
 						draft.valid_names = response.data?.valid_names;
-						draft.nome = `${response.data.rows[0].SRN_0} ${response.data.rows[0].NAM_0.toLowerCase().replace(/(^\w{1})|(\s+\w{1})/g, letter => letter.toUpperCase())}`;
+						const row = response.data.rows[0];
+						let nome = '';
+
+						// SAGE
+						if (row.SRN_0 && row.NAM_0) {
+						nome = `${row.SRN_0} ${row.NAM_0.toLowerCase().replace(/(^\w{1})|(\s+\w{1})/g, letter => letter.toUpperCase())}`;
+						} else if (row.NOME) {
+						nome = row.NOME;
+						} else {
+						nome = row.NFUNC || ''; 
+						}
+						draft.nome = nome;
 					});
 				} else {
 					updateData(draft => { draft.error = { status: true, text: response.data?.title } });
@@ -692,7 +703,7 @@ export default ({ }) => {
 			} catch (e) {
 				updateData(draft => { draft.error = { status: true, text: e.message } });
 				timeout.current = setTimeout(reset, ON_CONFIRM_TIMEOUT);
-				submitting.end();
+				submitting.end(); 	
 			};
 		}
 		else {

@@ -462,7 +462,7 @@ def filePathByNum(path,num):
 
 def SetUser(request, format=None):
     print("ededededededede")
-    connection = connections[connMssqlName].cursor()
+    # connection = connections[connMssqlName].cursor()  # NÃO usar connMssqlName para a FUNC1/SAGE!!
     data = request.data['parameters']
     filter = request.data['filter']
     portugal_timezone = pytz.timezone('Europe/Lisbon')
@@ -494,29 +494,43 @@ def SetUser(request, format=None):
                 with open(f"{records_base_path}/{ts.strftime('%Y%m%d')}/{num}/{ts.strftime('%Y%m%d.%H%M%S')}.jpg", "wb") as fh:
                     fh.write(base64.b64decode(data["snapshot"].replace('data:image/jpeg;base64,','')))
             # Chama saveRecord tal como em AutoCapture!
-            return Response(saveRecord(num, ts, hsh, data, get_client_ip(request)))
+            res = saveRecord(num, ts, hsh, data, get_client_ip(request))
+            # ADICIONA SEMPRE "rows" com colaborador proveniente do SAGE/FUNC1
+            sage100c_connection = connections[connSage100cName].cursor()
+            func_sql = f"""
+                SELECT F1.NFUNC, F1.NOME
+                FROM TRIMTEK_1GEP.dbo.FUNC1 F1
+                WHERE F1.NFUNC = '{num}' AND F1.DEMITIDO = 0
+            """
+            sage100c_connection.execute(func_sql)
+            row = sage100c_connection.fetchone()
+            if row:
+                nfunc, nome = row
+                rows = [{"NFUNC": nfunc, "NOME": nome}]
+            else:
+                rows = []
+            return Response({**res, "rows": rows})
+
         else:
             existsInBd = True
             result = False
             unknown_encoding = []
             unknown_image = None
-            filepath = filePathByNum(fotos_base_path,filter["num"])
+            filepath = filePathByNum(fotos_base_path, filter["num"])
             faces = loadFaces(faces_base_path)
             tmp = tempfile.NamedTemporaryFile(delete=False)
             try:
                 tmp.write(base64.b64decode(data["snapshot"].replace('data:image/jpeg;base64,','')))
                 ppi = preProcessImage(tmp.name)
                 if ppi is not None:
-                    ppi.save(tmp.name,"JPEG")
+                    ppi.save(tmp.name, "JPEG")
                     unknown_image = face_recognition.load_image_file(tmp)
-                #preProcessImage(tmp.name).save(tmp.name,"JPEG")
-                #unknown_image = face_recognition.api.load_image_file(preProcessImage(tmp.name))
                 unknown_image = face_recognition.load_image_file(tmp)
             finally:
                 tmp.close()
                 os.unlink(tmp.name)
             if unknown_image is not None:
-                unknown_encoding = face_recognition.face_encodings(unknown_image,None,jitters,model)
+                unknown_encoding = face_recognition.face_encodings(unknown_image, None, jitters, model)
             if len(unknown_encoding)==0:
                 saveSnapshot(records_invalid_base_path,data["snapshot"],ts,"no_face",filter["num"])
                 return Response({"status": "error", "title": "Não foi reconhecida nenhuma face!"})
@@ -525,86 +539,107 @@ def SetUser(request, format=None):
             valid_nums = []
             valid_filepaths = []
             valid_names = []
-            
+
             try:
                 result=False
                 existsInBd=False
                 for f in faces.get("nums"):
                     if f['num'] == filter["num"]:
                         existsInBd=True
-                        results = face_recognition.compare_faces([f["matrix"]], unknown_encoding,tolerance)
-                        if len(results)>0 and True in results:
-                            result=True
+                        results = face_recognition.compare_faces([f["matrix"]], unknown_encoding, tolerance)
+                        if len(results) > 0 and True in results:
+                            result = True
                             break
             except ValueError:
-                existsInBd = False            
-                
-            if result==False:
-                saveSnapshot(records_invalid_base_path,data["snapshot"],ts,"not_identified",filter["num"])
-                
+                existsInBd = False
+
+            if result == False:
+                saveSnapshot(records_invalid_base_path, data["snapshot"], ts, "not_identified", filter["num"])
+
                 distances = face_recognition.face_distance([_f['matrix'] for _f in faces.get("nums")], unknown_encoding)
-                items=[]
-                for idx,x in enumerate(distances):
-                    if x<=tolerance:
-                        items.append({"num":faces.get("nums")[idx].get("num"),"distance":x})
+                items = []
+                for idx, x in enumerate(distances):
+                    if x <= tolerance:
+                        items.append({"num": faces.get("nums")[idx].get("num"), "distance": x})
                 items = sorted(items, key=lambda x: x["distance"])
-                for idx,x in enumerate(items):
+                for idx, x in enumerate(items):
                     valid_nums.append(x.get("num"))
-                    valid_filepaths.append(filePathByNum(fotos_base_path,x.get("num")))
-                # results = face_recognition.compare_faces([_f['matrix'] for _f in faces.get("nums")], unknown_encoding,tolerance)
-                # valid_indexes = [i for i, x in enumerate(results) if x]
-                # for x in valid_indexes:
-                #     valid_nums.append(faces.get("nums")[x].get("num"))
-                #     valid_filepaths.append(filePathByNum(fotos_base_path,faces.get("nums")[x].get("num")))
+                    valid_filepaths.append(filePathByNum(fotos_base_path, x.get("num")))
                 if len(valid_nums):
                     sql = lambda: (
-                            f"""
-                                SELECT F1.NFUNC, F1.NOME 
-                                FROM TRIMTEK_1GEP.dbo.FUNC1 F1
-                                WHERE F1.DEMITIDO = 0 AND F1.NFUNC IN ({','.join(f"'{w}'" for w in valid_nums)})
-                                ORDER BY F1.NFUNC ASC
-                            """
-                        )
-                    response = dbmssql.executeSimpleList(sql, connection, {})
-                    if len(response["rows"])>0:
-                        valid_names=response["rows"]
-                if existsInBd==False:
-                    added=False
-                    #if len(valid_indexes)==0:
-                    #count = sum(1 for f in os.listdir(faces_base_path) if f.startswith(f'{filter["num"]}_'))
+                        f"""
+                            SELECT F1.NFUNC, F1.NOME 
+                            FROM TRIMTEK_1GEP.dbo.FUNC1 F1
+                            WHERE F1.DEMITIDO = 0 AND F1.NFUNC IN ({','.join(f"'{w}'" for w in valid_nums)})
+                            ORDER BY F1.NFUNC ASC
+                        """
+                    )
+                    response = dbmssql.executeSimpleList(sql, connections[connSage100cName].cursor(), {})
+                    if len(response["rows"]) > 0:
+                        valid_names = response["rows"]
+                if existsInBd == False:
+                    added = False
                     fname = f"""{filter["num"]}_{int(datetime.timestamp(datetime.now()))}.jpg"""
                     with open(f"""{faces_base_path}/{fname}""", "wb") as fh:
                         fh.write(base64.b64decode(data["snapshot"].replace('data:image/jpeg;base64,','')))
-                    preProcessImage(f"""{faces_base_path}/{fname}""").save(os.path.join(cropped_faces_base_path,fname),"JPEG")
-                    added = addFace(cropped_faces_base_path,fname)
-                    return Response({"status": "error", "title": f"""O colaborador indicado não existe no sistema! {"A recolha dos dados biométricos foi efetuada." if added else ""}"""})                
+                    preProcessImage(f"""{faces_base_path}/{fname}""").save(os.path.join(cropped_faces_base_path, fname), "JPEG")
+                    added = addFace(cropped_faces_base_path, fname)
+                    return Response({"status": "error", "title": f"""O colaborador indicado não existe no sistema! {"A recolha dos dados biométricos foi efetuada." if added else ""}"""})
 
             f = Filters(request.data['filter'])
             f.setParameters({
                 "F1.NFUNC": {"value": lambda v: f"=={v.get('num')}", "field": lambda k, v: f'e.{k}'}
             }, True)
-            f.where(False,"and")
+            f.where(False, "and")
             f.auto()
             f.value("and")
             parameters = {**f.parameters}
-            dql = dbmssql.dql(request.data, False,False,[])
+            dql = dbmssql.dql(request.data, False, False, [])
             if valid_nums:
-                    sql = lambda: (
-                            f"""
-                                SELECT F1.NFUNC, F1.NOME 
-                                FROM TRIMTEK_1GEP.dbo.FUNC1 F1
-                                WHERE F1.DEMITIDO = 0 AND F1.NFUNC IN ({','.join(f"'{w}'" for w in valid_nums)})
-                                ORDER BY F1.NFUNC ASC
-                            """
-                        )
-                    response = dbsage100c.executeSimpleList(sql, sage100c_connection, {})
+                sql = lambda: (
+                    f"""
+                        SELECT F1.NFUNC, F1.NOME 
+                        FROM TRIMTEK_1GEP.dbo.FUNC1 F1
+                        WHERE F1.DEMITIDO = 0 AND F1.NFUNC IN ({','.join(f"'{w}'" for w in valid_nums)})
+                        ORDER BY F1.NFUNC ASC
+                    """
+                )
+                response = dbsage100c.executeSimpleList(sql, connections[connSage100cName].cursor(), {})
             else:
                 response = {"rows": []}
 
-            return Response({**response,"result":result,"foto":filepath,"valid_nums":valid_nums,"valid_filepaths":valid_filepaths,"valid_names":valid_names,"config":getConfig(),"existsInBd":existsInBd})
+            # Sempre buscar colaborador por número na base correta (SAGE):
+            func_num = filter["num"]
+            sage100c_connection = connections[connSage100cName].cursor()
+            func_sql = f"""
+                SELECT F1.NFUNC, F1.NOME
+                FROM TRIMTEK_1GEP.dbo.FUNC1 F1
+                WHERE F1.NFUNC = '{func_num}' AND F1.DEMITIDO = 0
+            """
+            sage100c_connection.execute(func_sql)
+            row = sage100c_connection.fetchone()
+            if row:
+                nfunc, nome = row
+                rows = [{"NFUNC": nfunc, "NOME": nome}]
+            else:
+                rows = []
+
+            return Response({
+                **response,
+                "rows": rows,
+                "result": result,
+                "foto": filepath,
+                "valid_nums": valid_nums,
+                "valid_filepaths": valid_filepaths,
+                "valid_names": valid_names,
+                "config": getConfig(),
+                "existsInBd": existsInBd
+            })
     except Exception as error:
         print(error)
         return Response({"status": "error", "title": str(error)})
+
+
 
 def saveSnapshot(basepath,snapshot,tstamp,suffix="",num=None):
     try:
