@@ -1,0 +1,54 @@
+html,
+body {
+    overflow: hidden;
+    font-size:11px !important;
+	font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'Noto Sans',sans-serif,'Apple Color Emoji','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji' !important;
+	margin:0px;
+    /* overflow: hidden; */
+}
+
+/*.ant-modal-confirm-body>.anticon+.ant-modal-confirm-title+.ant-modal-confirm-content {
+    margin-left: 0px !important;
+}*/
+
+/* @layer Root {.r104f42s7-0-0-beta-26 {
+    block-size:100% !important;
+    height:100% !important;
+}} */
+
+.react-grid-item.react-grid-placeholder {
+  background:#b8e6ff !important;
+  border-radius:6px;
+}
+
+.ant-table-body {
+    scrollbar-color: rgba(105, 112, 125, .5) transparent;
+    scrollbar-width: thin;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.ant-table-body::-webkit-scrollbar {
+    width: 16px;
+    height: 16px;
+}
+
+.ant-table-body::-webkit-scrollbar-thumb {
+    background-color: rgba(105, 112, 125, .5);
+    background-clip: content-box;
+    border-radius: 16px;
+    border: 6px solid transparent;
+}
+
+.ant-table-body::-webkit-scrollbar-corner {
+    background-color: transparent;
+}
+
+.ant-table-body:focus {
+    outline: none;
+}
+
+.ant-table-body:focus:focus-visible {
+    outline-style: auto;
+}

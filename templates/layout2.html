@@ -1,0 +1,116 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+
+<head>
+  <!-- Required meta tags -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+  <!-- Bootstrap CSS -->
+  <!-- Latest compiled and minified CSS -->
+  <link rel="shortcut icon" href="{%  static 'img/favicon.ico' %}">
+  <link rel="stylesheet" href="{% static 'css/mapa.css' %}">
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u"
+    crossorigin="anonymous">
+    
+
+  <title>{% block title %}Sistema de Gestão de Produção{% endblock %}</title>
+</head>
+
+<body>
+  <nav class="navbar navbar-inverse navbar-fixed-top">
+    <div class="container" >
+      <div class="navbar-header">
+        <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar" aria-expanded="false"
+          aria-controls="navbar">
+          <span class="sr-only">Toggle navigation</span>
+          <span class="icon-bar"></span>
+          <span class="icon-bar"></span>
+          <span class="icon-bar"></span>
+        </button>
+        <a class="navbar-brand" href="{% url 'home' %}">Elastictek</a>
+      </div>
+      <div id="navbar" class="navbar-collapse collapse">
+        <ul class="nav navbar-nav navbar-right">
+          {% if not user.is_authenticated %}
+          <li><a href="{% url 'users:login' %}">Login</a></li>
+          
+          {% else %}
+          
+          <!-- <li>
+            {% if user.is_staff %}
+            <a class="btn btn-secondary" href="{% url 'producao:dadosbase_home' %}">
+              Dados BAse
+            </a>
+           
+            {% endif %}
+            
+          </li> -->
+          <li>
+            {% if user.is_staff %}
+            <a class="btn btn-secondary" href="{% url 'producao:planeamento_home' %}">
+              Planeamento
+            </a>
+           
+            {% endif %}
+            
+          </li>
+         
+          <li>
+            <a class="btn btn-secondary" href="{% url 'producao:producao_home' %}" role="button">
+              Produção
+            </a>
+          
+            
+          </li>
+          <li>
+            {% if user.is_staff %}
+            <a class="btn btn-secondary" href="{% url 'producao:armazem_home' %}">
+              Armazém
+            </a>
+           
+            {% endif %}
+            
+          </li>
+          <!-- <li>
+            <a class="btn btn-secondary" href="{% url 'producao:relatorio_home' %}" role="button">
+              Dados de produção
+            </a>
+            
+            
+          </li> -->
+          
+          {% comment %} <li><a href="{% url 'report:report' %}">Report</a></li> {% endcomment %}
+          <li><a href="#">{{ user.first_name }} {{ user.last_name }}</a></li>
+          
+          
+          <li><a href="{% url 'users:logout' %}">Logout</a></li>
+          {% endif %}
+          
+        </ul>
+          
+      </div>
+      <!--/.navbar-collapse -->
+    </div>
+  </nav>
+
+  <div id="content">
+    {% block content %} {% endblock %}
+  </div>
+
+  <!-- Optional JavaScript -->
+  <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+  <!-- Optional theme -->
+  
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp"
+    crossorigin="anonymous">
+
+  <!-- Latest compiled and minified JavaScript -->
+  <script type="text/javascript" src='{% static "js/scripts.js" %}'></script>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+ 
+</body>
+
+</html>

@@ -1,0 +1,27 @@
+{% extends "layout.html"%}
+
+{% block title %}Logout | {{ block.super }}{% endblock %}
+{% block content %}
+
+<div class="container">
+    <div class="container">
+        <h1>Tem a certeza que quer fazer logout?</h1>
+    </div>
+    <br>
+    <form method="POST" action="">
+        {% csrf_token %}
+        <div class="container">
+            <div class="row mt-2">
+                <a href="{% url 'home' %}" class="btn btn-outline-primary" role="button">Cancelar</a>
+            </div>           
+                
+            <div class="row mt-2">
+                <button type="submit" class="btn btn-primary">Logout</button>
+            </div>
+
+        </div>
+    </form>
+
+</div>
+
+{% endblock %}
