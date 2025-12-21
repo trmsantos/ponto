@@ -858,103 +858,268 @@ def UpdateRecords(request, format=None):
         return Response({"status": "error", "title": str(error)})
 
 def RegistosRH(request, format=None):
-    print("oiiiiiii")
-    connection = connections[connMssqlName].cursor()
-    f = Filters(request.data['filter'])
-    f.setParameters({
-        **rangeP(f.filterData.get('fdata'), 'dts', lambda k, v: f'CONVERT(DATE, dts)'),
-    #    **rangeP(f.filterData.get('fdatain'), 'in_t', lambda k, v: f'DATE(in_t)'),
-    #    **rangeP(f.filterData.get('fdataout'), 'out_t', lambda k, v: f'DATE(out_t)'),
-    #    "diff": {"value": lambda v: '>0' if "fdataout" in v and v.get("fdataout") is not None else None, "field": lambda k, v: f'TIMESTAMPDIFF(second,in_t,out_t)'},
-        "SRN_0": {"value": lambda v: v.get('fnome').lower() if v.get('fnome') is not None else None, "field": lambda k, v: f'lower(EID.{k})'},
-        # "carga": {"value": lambda v: v.get('fcarganome').lower() if v.get('fcarganome') is not None else None, "field": lambda k, v: f'lower(sgppl.{k})'},
-        "fnum": {"value": lambda v: v.get('fnum').lower() if v.get('fnum') is not None else None, "field": lambda k, v: f'lower(TR.num)'},
-        "num": {"value": lambda v: f"=={v.get('num')}" if v.get('num') is not None else None, "field": lambda k, v: f'TR.{k}'},
-        # "lar": {"value": lambda v: Filters.getNumeric(v.get('flargura')), "field": lambda k, v: f"j->>'{k}'"},
-        # "area_real": {"value": lambda v: Filters.getNumeric(v.get('farea')), "field": lambda k, v: f'sgppl.{k}'},
-        # "comp_real": {"value": lambda v: Filters.getNumeric(v.get('fcomp')), "field": lambda k, v: f'sgppl.{k}'},
-        # "mes": {"value": lambda v: Filters.getNumeric(v.get('fmes')), "field": lambda k, v: f'mv.{k}'},
-        # "disabled": {"value": lambda v: Filters.getNumeric(v.get('fdisabled')), "field": lambda k, v: f'sgppl.{k}'},
-        # "ano": {"value": lambda v: Filters.getNumeric(v.get('fano')), "field": lambda k, v: f'mv.{k}'},
-        # "diam_avg": {"value": lambda v: Filters.getNumeric(v.get('fdiam_avg')), "field": lambda k, v: f'sgppl.{k}'},
-        # "diam_max": {"value": lambda v: Filters.getNumeric(v.get('fdiam_max')), "field": lambda k, v: f'sgppl.{k}'},
-        # "diam_min": {"value": lambda v: Filters.getNumeric(v.get('fdiam_min')), "field": lambda k, v: f'sgppl.{k}'},
-        # "destino": {"value": lambda v: v.get('fdestinoold').lower() if v.get('fdestinoold') is not None else None, "field": lambda k, v: f'lower(sgppl.{k})'},
-        # "peso_bruto": {"value": lambda v: Filters.getNumeric(v.get('fpeso_bruto')), "field": lambda k, v: f'sgppl.{k}'},
-        # "peso_liquido": {"value": lambda v: Filters.getNumeric(v.get('fpeso_liquido')), "field": lambda k, v: f'sgppl.{k}'},
-        # "carga_id": {"value": lambda v: v.get('fcarga'), "field": lambda k, v: f'sgppl.{k}'},
-        # "ISSDHNUM_0": {"value": lambda v: v.get('fdispatched'), "field": lambda k, v: f' mv."SDHNUM_0"'},
-        # "SDHNUM_0": {"value": lambda v: v.get('fsdh').lower() if v.get('fsdh') is not None else None, "field": lambda k, v: f'lower(mv."SDHNUM_0")'},
-        # "BPCNAM_0": {"value": lambda v: v.get('fclienteexp').lower() if v.get('fclienteexp') is not None else None, "field": lambda k, v: f'lower(mv."{k}")'},
-        # "EECICT_0": {"value": lambda v: v.get('feec').lower() if v.get('feec') is not None else None, "field": lambda k, v: f'lower(mv."{k}")'},
-       
-        # "matricula": {"value": lambda v: v.get('fmatricula').lower() if v.get('fmatricula') is not None else None, "field": lambda k, v: f'lower(mol.{k})'},
-        # "matricula_reboque": {"value": lambda v: v.get('fmatricula_reboque').lower() if v.get('fmatricula_reboque') is not None else None, "field": lambda k, v: f'lower(mol.{k})'},
-        # "prf": {"value": lambda v: v.get('fprf').lower() if v.get('fprf') is not None else None, "field": lambda k, v: f'lower(mol.{k})'},
-        # "iorder": {"value": lambda v: v.get('forder').lower() if v.get('forder') is not None else None, "field": lambda k, v: f'lower(mol.{k})'},
-
-
-       #mv."BPCNAM_0",mv."ITMREF_0",mv."ITMDES1_0",mv."EECICT_0"
-
-    #    "fof": {"value": lambda v: v.get('fof')},
-    #    "vcr_num": {"value": lambda v: v.get('fvcr')},
-    #    "qty_lote": {"value": lambda v: v.get('fqty'), "field": lambda k, v: f'{k}'},
-    #    "qty_reminder": {"value": lambda v: v.get('fqty_reminder'), "field": lambda k, v: f'{k}'},
-    #    "type_mov": {"value": lambda v: v.get('ftype_mov'), "field": lambda k, v: f'{k}'}
-    }, True)
-    f.where()
-    f.auto()
-    f.value()
-    fmulti = filterMulti(request.data['filter'], {
-        # 'flotenw': {"keys": ['lotenwinf', 'lotenwsup'], "table": 'mb.'},
-        # 'ftiponw': {"keys": ['tiponwinf', 'tiponwsup'], "table": 'mb.'},
-        # 'fbobine': {"keys": ['nome'], "table": 'mb.'},
-    }, False, "and" if f.hasFilters else "where" ,False)
-    fmulti["text"] = f""" """
-
-    parameters = {**f.parameters, **fmulti['parameters']}
-    dql = dbmssql.dql(request.data, False)
-    cols = f"""
-        *
-    """
-    dql.columns=encloseColumn(cols,False)
-    sql = lambda p, c, s: (
-        f"""  
-            select {c(f'{dql.columns}')} from (
-            select  
-                ROW_NUMBER() OVER (PARTITION BY TR.id order by CT.CTRDAT_0 DESC) AS rn,
-                TR.*,EID.SRN_0,EID.NAM_0,CT.PLNTYP_0,CT.ETRSRV_0,
-                CT.PROPRF_0,
-                LAST_VALUE( CT.PROPRF_0 ) OVER ( 
-                PARTITION BY TR.id,CT.REFNUM_0
-                ORDER BY CT.CTRDAT_0 
-                ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
-                ) AS LAST_PROPRF_0
-            from rponto.dbo.time_registration TR
-            JOIN x3peoplesql.[PEOPLELTEK].EMPLOID EID on EID.REFNUM_0 COLLATE Latin1_General_BIN = TR.num
-            JOIN x3peoplesql.[PEOPLELTEK].[EMPLOCTR] CT ON EID.REFNUM_0 = CT.REFNUM_0
-            {f.text} {fmulti["text"]}
-            ) e where rn=1 and e.LAST_PROPRF_0=e.PROPRF_0
-            {s(dql.sort)} {p(dql.paging)} {p(dql.limit)}
-        """
-    )
-    if ("export" in request.data["parameters"]):
-        dql.limit=f"""OFFSET 0 ROWS FETCH NEXT {request.data["parameters"]["limit"]} ROWS ONLY"""
-        dql.paging=""
-        new_cols = {}
-        for key, value in request.data["parameters"].get("cols").items():
-            new_cols[key] = value
-            if key == 'num':
-                new_cols['PLNTYP_0'] = {'title': 'Equipa', 'width': 90}
-                new_cols['ETRSRV_0'] = {'title': 'Dpt.', 'width': 90}                
-        request.data["parameters"]["cols"] = new_cols 
-        return export(sql(lambda v:v,lambda v:v,lambda v:v), db_parameters=parameters, parameters=request.data["parameters"],conn_name=AppSettings.reportConn["sage"],dbi=dbmssql,conn=connection)
+    print("RegistosRH - Iniciando (APENAS rponto + SAGE100C)...")
+    
+    connection_rponto = connections[connMssqlName].cursor()
+    connection_sage = connections[connSage100cName].cursor()
+    
     try:
-        response = dbmssql.executeList(sql, connection, parameters,[],None,f"select {dql.currentPage*dql.pageSize+1}")
+        print("=" * 80)
+        print("REQUEST DATA:")
+        print(f"Filter: {request.data.get('filter')}")
+        print(f"Parameters: {request.data.get('parameters')}")
+        print(f"Pagination: {request.data.get('pagination')}")
+        print("=" * 80)
+
+        f = Filters(request.data['filter'])
+        f.setParameters({
+            **rangeP(f.filterData.get('fdata'), 'dts', lambda k, v: f'CONVERT(DATE, dts)'),
+            "fnum": {
+                "value": lambda v: v.get('fnum').lower() if v.get('fnum') else None,
+                "field": lambda k, v: f'lower(TR.num)'
+            },
+            "num": {
+                "value": lambda v: f"=={v.get('num')}" if v.get('num') is not None else None, 
+                "field": lambda k, v: f'TR.{k}'
+            },
+        }, True)
+        f.where()
+        f.auto()
+        f.value()
+        
+        fmulti = filterMulti(request.data['filter'], {}, False, "and" if f.hasFilters else "where", False)
+        fmulti["text"] = " "
+        
+        parameters = {**f.parameters, **fmulti['parameters']}
+        dql = dbmssql.dql(request.data, False)
+        
+        cols = """
+            TR.id,
+            TR.num,
+            TR.dts,
+            TR.ss_01, TR.ty_01,
+            TR.ss_02, TR.ty_02,
+            TR.ss_03, TR.ty_03,
+            TR.ss_04, TR.ty_04,
+            TR.ss_05, TR.ty_05,
+            TR.ss_06, TR.ty_06,
+            TR.ss_07, TR.ty_07,
+            TR.ss_08, TR.ty_08,
+            TR.nt
+        """
+        
+        dql.columns = encloseColumn(cols, False)
+        
+        sql_rponto = lambda p, c, s: f"""
+            SELECT {c(f'{dql.columns}')}
+            FROM rponto.dbo.time_registration TR
+            {f.text} {fmulti["text"]}
+            {s(dql.sort) if dql.sort else 'ORDER BY TR.dts DESC, TR.num ASC'}
+            {p(dql.paging)} {p(dql.limit)}
+        """
+        
+        print(f"Query rponto: {sql_rponto(lambda v:v, lambda v:v, lambda v:v)}")
+        print(f"Parameters: {parameters}")
+        
+        # Executar query rponto
+        response_rponto = dbmssql.executeList(
+            sql_rponto, 
+            connection_rponto, 
+            parameters, 
+            [], 
+            None, 
+            f"select {dql.currentPage * dql.pageSize + 1}"
+        )
+        
+        if not response_rponto.get('rows'):
+            return Response({
+                "rows": [],
+                "total": 0,
+                "page": dql.currentPage,
+                "pageSize": dql.pageSize,
+                "status": "success"
+            })
+        
+        registos = response_rponto['rows']
+        
+        # ============================================================
+        # BUSCAR NOMES DA FUNC1
+        # ============================================================
+        nums_list = list(set([r['num'] for r in registos if r.get('num')]))
+        
+        print(f"Números a buscar em FUNC1: {nums_list}")
+        
+        if nums_list:
+            placeholders = ','.join(['%s' for _ in nums_list])  # ← %s em vez de ?
+            
+            sql_func1 = f"""
+                SELECT 
+                    NFUNC,
+                    NOME
+                FROM TRIMTEK_1GEP.dbo.FUNC1
+                WHERE NFUNC IN ({placeholders})
+            """
+            
+            print("=" * 80)
+            print(f"Query FUNC1: {sql_func1}")
+            print(f"Nums para buscar: {nums_list[:10]}")  # Primeiros 10
+            print(f"Total de nums: {len(nums_list)}")
+            print("=" * 80)
+            
+            try:
+                print("Executando query na conexão sage100c...")
+                connection_sage.execute(sql_func1, tuple(nums_list))  # ← TUPLE!
+                print("Query executada com sucesso!")
+                
+                columns_func1 = [col[0] for col in connection_sage.description]
+                print(f"Colunas retornadas: {columns_func1}")
+                
+                funcionarios_list = connection_sage.fetchall()
+                print(f"Linhas retornadas: {len(funcionarios_list)}")
+                
+                print("=" * 80)
+                print("PRIMEIROS 5 RESULTADOS FUNC1:")
+                for i, row in enumerate(funcionarios_list[:5]):
+                    func_data = dict(zip(columns_func1, row))
+                    print(f"  {i+1}. NFUNC: '{func_data.get('NFUNC')}' | NOME: '{func_data.get('NOME')}'")
+                print("=" * 80)
+                
+                funcionarios_dict = {}
+                for row in funcionarios_list:
+                    func_data = dict(zip(columns_func1, row))
+                    funcionarios_dict[func_data['NFUNC']] = func_data
+                
+                print(f"Dicionário criado com {len(funcionarios_dict)} funcionários")
+                print(f"Primeiras 5 keys: {list(funcionarios_dict.keys())[:5]}")
+            except Exception as e:
+                print(f"Erro ao buscar FUNC1: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                funcionarios_dict = {}
+        else:
+            funcionarios_dict = {}
+        
+        # ============================================================
+        # ADICIONAR NOME AOS REGISTOS
+        # ============================================================
+        print("=" * 80)
+        print("MAPEANDO NOMES AOS REGISTOS:")
+        for i, registro in enumerate(registos[:3]):  # Primeiros 3
+            num = registro.get('num')
+            funcionario = funcionarios_dict.get(num, {})
+            nome = funcionario.get('NOME', 'Nome não disponível')
+            
+            print(f"  Registro {i+1}: num='{num}' -> funcionario={funcionario} -> nome='{nome}'")
+            
+            # Adicionar apenas NOME da FUNC1
+            registro['nome_colaborador'] = nome
+        
+        # Resto dos registos sem print
+        for registro in registos[3:]:
+            num = registro.get('num')
+            funcionario = funcionarios_dict.get(num, {})
+            registro['nome_colaborador'] = funcionario.get('NOME', 'Nome não disponível')
+        
+        print("=" * 80)
+        
+        # ============================================================
+        # FILTRO POR NOME
+        # ============================================================
+        fnome = request.data.get('filter', {}).get('fnome', '').lower()
+        if fnome:
+            registos = [
+                r for r in registos 
+                if fnome in r.get('nome_colaborador', '').lower()
+            ]
+        
+        # ============================================================
+        # EXPORT
+        # ============================================================
+        if ("export" in request.data["parameters"]):
+            dql.limit = f"""OFFSET 0 ROWS FETCH NEXT {request.data["parameters"]["limit"]} ROWS ONLY"""
+            dql.paging = ""
+            new_cols = {}
+            for key, value in request.data["parameters"].get("cols", {}).items():
+                new_cols[key] = value
+                if key == 'num':
+                    new_cols['nome_colaborador'] = {'title': 'Nome', 'width': 200}
+            request.data["parameters"]["cols"] = new_cols
+            
+            return export(
+                sql_rponto(lambda v:v, lambda v:v, lambda v:v), 
+                db_parameters=parameters, 
+                parameters=request.data["parameters"],
+                conn_name=AppSettings.reportConn["sage"],
+                dbi=dbmssql,
+                conn=connection_rponto
+            )
+        
+        return Response({
+            "rows": registos,
+            "total": response_rponto.get('total', len(registos)),
+            "page": dql.currentPage,
+            "pageSize": dql.pageSize,
+            "status": "success"
+        })
+        
     except Exception as error:
-        print(str(error))
+        print(f"Erro em RegistosRH: {str(error)}")
+        import traceback
+        traceback.print_exc()
         return Response({"status": "error", "title": str(error)})
-    return Response(response)
+    
+    finally:
+        connection_rponto.close()
+        connection_sage.close()
+
+
+def GetFuncionarioInfo(num):
+    """
+    Buscar nome de um funcionário específico
+    """
+    connection = connections[connSage100cName].cursor()
+    try:
+        sql = """
+            SELECT NFUNC, NOME
+            FROM TRIMTEK_1GEP.dbo.FUNC1
+            WHERE NFUNC = ?
+        """
+        connection.execute(sql, [num])
+        columns = [col[0] for col in connection.description]
+        row = connection.fetchone()
+        
+        if row:
+            return dict(zip(columns, row))
+        return None
+    except Exception as e:
+        print(f"Erro ao buscar funcionário {num}: {str(e)}")
+        return None
+    finally:
+        connection.close()
+
+
+def ListAllFuncionarios():
+    """
+    Listar todos os funcionários
+    """
+    connection = connections[connSage100cName].cursor()
+    try:
+        sql = """
+            SELECT NFUNC, NOME
+            FROM TRIMTEK_1GEP.dbo.FUNC1
+            ORDER BY NOME
+        """
+        connection.execute(sql)
+        columns = [col[0] for col in connection.description]
+        rows = connection.fetchall()
+        
+        return [dict(zip(columns, row)) for row in rows]
+    except Exception as e:
+        print(f"Erro ao listar funcionários: {str(e)}")
+        return []
+    finally:
+        connection.close()
+
 
 def CalendarList(request, format=None):
     connection = connections[connMssqlName].cursor()
