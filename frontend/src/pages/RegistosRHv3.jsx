@@ -456,68 +456,145 @@ const Pagination = ({ currentPage, totalPages, onPageChange, pageSize, onPageSiz
   );
 };
 
-const DefinicoesDrawer = ({ isOpen, onClose, filters, setFilters, onApplyFilters, onClearFilters, isRH, onExport, onRefresh, onBiometrias, onInvalidRecords }) => {
+// Settings Menu Component
+const SettingsMenu = ({ isOpen, onClose, filters, setFilters, onApplyFilters, onClearFilters, isRH, onExport, onRefresh, onBiometrias, onInvalidRecords }) => {
+  const [activeTab, setActiveTab] = useState('filters');
+  
   if (!isOpen) return null;
-
+  
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
-      <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm transition-opacity" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 max-w-full flex animate-slideInRight">
-        <div className="w-screen max-w-sm">
-          <div className="h-full flex flex-col bg-white shadow-2xl">
-            {/* Header */}
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50">
-              <h2 className="text-xl font-bold text-gray-800">Definições</h2>
-              <button onClick={onClose} className="p-2 hover:bg-white rounded-full transition-colors">
-                <X size={24} className="text-gray-400" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-8">
-              {/* Secção de Exportação */}
-              <div>
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Relatórios</h3>
-                <button 
-                  onClick={() => { onExport(); onClose(); }}
-                  className="w-full flex items-center gap-4 p-4 rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all group text-left"
-                >
-                  <div className="p-3 bg-blue-100 text-blue-600 rounded-lg group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                    <Download size={20} />
+      <div className="absolute inset-0 overflow-hidden">
+        <div className="absolute inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm transition-opacity" onClick={onClose} />
+        <div className="fixed inset-y-0 right-0 max-w-full flex animate-slideInRight">
+          <div className="w-screen max-w-md">
+            <div className="h-full flex flex-col bg-white shadow-2xl">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Settings size={24} className="text-white" />
+                    <h3 className="text-lg font-semibold text-white">Configurações</h3>
                   </div>
-                  <div>
-                    <p className="font-bold text-gray-700">Exportar para Excel</p>
-                    <p className="text-xs text-gray-500">Descarregar listagem atual</p>
-                  </div>
-                </button>
+                  <button onClick={onClose} className="text-white hover:text-gray-200 transition-colors p-1 hover:bg-white/10 rounded-lg">
+                    <X size={20} />
+                  </button>
+                </div>
               </div>
 
-              {/* Secção de Gestão Avançada (Apenas RH) */}
-              {isRH && (
-                <div>
-                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Gestão Administrativa</h3>
-                  <div className="space-y-3">
-                    <button 
-                      onClick={() => { onBiometrias(); onClose(); }}
-                      className="w-full flex items-center gap-3 p-3 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg border border-transparent hover:border-gray-200 transition-all"
-                    >
-                      <Camera size={18} className="text-gray-400" />
-                      Gestão de Biometrias
-                    </button>
-                    <button 
-                      onClick={() => { onInvalidRecords(); onClose(); }}
-                      className="w-full flex items-center gap-3 p-3 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                    >
-                      <AlertCircle size={18} />
-                      Registos Inválidos
-                    </button>
-                  </div>
+              {/* Tabs */}
+              <div className="border-b border-gray-200 bg-gray-50">
+                <div className="flex">
+                  <button
+                    onClick={() => setActiveTab('filters')}
+                    className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                      activeTab === 'filters'
+                        ? 'border-b-2 border-blue-600 text-blue-600'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <Filter size={16} className="inline mr-2" />
+                    Filtros
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('actions')}
+                    className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                      activeTab === 'actions'
+                        ? 'border-b-2 border-blue-600 text-blue-600'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <Settings size={16} className="inline mr-2" />
+                    Ações
+                  </button>
                 </div>
-              )}
-            </div>
+              </div>
 
-            {/* Rodapé Útil */}
-            <div className="p-6 bg-gray-50 border-t border-gray-100">
-               <Button variant="default" className="w-full" onClick={onClearFilters}>Limpar Filtros</Button>
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto px-6 py-4">
+                {activeTab === 'filters' && (
+                  <div className="space-y-4">
+                    <h4 className="font-semibold text-gray-900 mb-4">Filtrar Registos</h4>
+                    
+                    {isRH && (
+                      <>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Número</label>
+                          <Input
+                            value={filters.fnum}
+                            onChange={(e) => setFilters({ ...filters, fnum: e.target.value })}
+                            placeholder="Número do colaborador"
+                            icon={<Search size={16} />}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Nome</label>
+                          <Input
+                            value={filters.fnome}
+                            onChange={(e) => setFilters({ ...filters, fnome: e.target.value })}
+                            placeholder="Nome do colaborador"
+                            icon={<Search size={16} />}
+                          />
+                        </div>
+                      </>
+                    )}
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Data Início</label>
+                      <DatePicker
+                        value={filters.fdateFrom}
+                        onChange={(val) => setFilters({ ...filters, fdateFrom: val })}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Data Fim</label>
+                      <DatePicker
+                        value={filters.fdateTo}
+                        onChange={(val) => setFilters({ ...filters, fdateTo: val })}
+                      />
+                    </div>
+
+                    <div className="pt-4 space-y-2">
+                      <Button variant="primary" className="w-full" onClick={() => { onApplyFilters(); onClose(); }} icon={<Search size={16} />}>
+                        Aplicar Filtros
+                      </Button>
+                      <Button variant="default" className="w-full" onClick={onClearFilters}>
+                        Limpar Filtros
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'actions' && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-gray-900 mb-4">Ações Disponíveis</h4>
+                    
+                    <Button variant="default" className="w-full justify-start" onClick={() => { onRefresh(); onClose(); }} icon={<RefreshCw size={16} />}>
+                      Atualizar Dados
+                    </Button>
+                    
+                    <Button variant="default" className="w-full justify-start" onClick={() => { onExport(); onClose(); }} icon={<Download size={16} />}>
+                      Exportar para Excel
+                    </Button>
+                    
+                    {isRH && (
+                      <>
+                        <div className="border-t border-gray-200 my-4"></div>
+                        <h5 className="text-sm font-semibold text-gray-700 mb-2">Gestão</h5>
+                        
+                        <Button variant="default" className="w-full justify-start" onClick={() => { onBiometrias(); onClose(); }} icon={<Camera size={16} />}>
+                          Gestão de Biometrias
+                        </Button>
+                        
+                        <Button variant="default" className="w-full justify-start" onClick={() => { onInvalidRecords(); onClose(); }} icon={<AlertCircle size={16} />}>
+                          Registos Inválidos
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1333,45 +1410,28 @@ export default ({ setFormTitle, ...props }) => {
       const idx = `${i + 1}`.padStart(2, '0');
       return {
         key: `ss_${idx}`,
-        header: `P${i + 1}`,
-        width: '160px',
+        header: `Picagem ${idx}`,
+        width: '140px',
         render: ({ value, data: row }) => {
           const type = row[`ty_${idx}`]?.trim();
-          
-          // Sem picagem
           if (!value) return (
-            <div className="text-center">
-              <div className="inline-flex items-center px-3 py-1.5 rounded-lg bg-gray-100 text-gray-400 text-xs">
-                <span className="w-2 h-2 rounded-full bg-gray-300 mr-2"></span>
-                ---
-              </div>
+            <div className="text-center text-gray-300 text-xs">
+              ---
             </div>
           );
           
-          // Com picagem - layout melhorado
-          const isEntrada = type === 'in';
-          
           return (
-            <div className="flex flex-col items-center gap-2">
-              {/* Hora com ícone */}
-              <div className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm shadow-sm transition-all hover:scale-105 ${
-                isEntrada
-                  ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white' 
-                  : 'bg-gradient-to-br from-green-500 to-green-600 text-white'
+            <div className="flex flex-col items-center gap-1">
+              <div className={`px-3 py-2 rounded-lg font-bold text-sm shadow-sm ${
+                type === 'in' 
+                  ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white' 
+                  : 'bg-gradient-to-r from-green-500 to-green-600 text-white'
               }`}>
-                <div className={`w-2 h-2 rounded-full ${isEntrada ? 'bg-blue-200' : 'bg-green-200'} animate-pulse`}></div>
-                <span>{dayjs(value).format('HH:mm')}</span>
+                {dayjs(value).format('HH:mm')}
               </div>
-              
-              {/* Label intuitivo */}
-              <div className={`flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-bold ${
-                isEntrada
-                  ? 'bg-blue-100 text-blue-800' 
-                  : 'bg-green-100 text-green-800'
-              }`}>
-                <span className="text-xs">{isEntrada ? '⬇' : '⬆'}</span>
-                {isEntrada ? 'ENTRADA' : 'SAÍDA'}
-              </div>
+              <Badge variant={type === 'in' ? 'in' : 'out'} className="text-[10px]">
+                {type === 'in' ? '↓ Entrada' : '↑ Saída'}
+              </Badge>
             </div>
           );
         }
@@ -1424,6 +1484,84 @@ export default ({ setFormTitle, ...props }) => {
             Configurações
           </Button>
         </div>
+
+        {/* ==================== FILTROS VISÍVEIS ==================== */}
+        {isRH(auth, num) && (
+          <Card className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-white border-blue-200">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-2 flex items-center gap-1">
+                  <Search size={12} />
+                  Número Colaborador
+                </label>
+                <Input
+                  value={filters.fnum}
+                  onChange={(e) => setFilters({ ...filters, fnum: e.target.value })}
+                  placeholder="Ex: F00242"
+                  size="sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-2 flex items-center gap-1">
+                  <Search size={12} />
+                  Nome
+                </label>
+                <Input
+                  value={filters.fnome}
+                  onChange={(e) => setFilters({ ...filters, fnome: e.target.value })}
+                  placeholder="Nome do colaborador"
+                  size="sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-2">Data Início</label>
+                <DatePicker
+                  value={filters.fdateFrom}
+                  onChange={(val) => setFilters({ ...filters, fdateFrom: val })}
+                  size="sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-2">Data Fim</label>
+                <DatePicker
+                  value={filters.fdateTo}
+                  onChange={(val) => setFilters({ ...filters, fdateTo: val })}
+                  size="sm"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <Button 
+                variant="primary" 
+                size="sm" 
+                onClick={handleApplyFilters}
+                icon={<Filter size={14} />}
+              >
+                Filtrar
+              </Button>
+              <Button 
+                variant="default" 
+                size="sm" 
+                onClick={() => {
+                  handleClearFilters();
+                  loadData();
+                }}
+                icon={<X size={14} />}
+              >
+                Limpar
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={loadData}
+                icon={<RefreshCw size={14} />}
+              >
+                Atualizar
+              </Button>
+            </div>
+          </Card>
+        )}
+        {/* ========================================================== */}
 
         {/* Table Card - Full Height */}
         <Card className="flex-1 flex flex-col overflow-hidden">
