@@ -27,6 +27,7 @@ const RegistosRH = lazy(() => import('./RegistosRH'));
 const RegistosRHv3 = lazy(() => import('./RegistosRHv3'));
 const PlanRH = lazy(() => import('./PlanRH'));
 const Teste = lazy(() => import('./Teste'));
+const Turnos = lazy (() => import('./TesteTurnos'));
 
 
 export const MediaContext = React.createContext({});
@@ -52,6 +53,7 @@ const RenderRouter = () => {
                 { path: "rh/registospessoal", element: <Suspense fallback={<Spin />}><RegistosRH key="lst-rp-pri" id ="lst-rp-pri" /></Suspense> },
                 { path: "rh/planpessoal", element: <Suspense fallback={<Spin />}><PlanRH  key="lst-pl-pri" id="lst-pl-pri" /></Suspense> },
                 { path: "rh/teste", element: <Suspense fallback={<Spin />}><Teste /></Suspense> },
+                { path: "rh/turnos", element: <Suspense fallback={<Spin />}><Turnos /></Suspense>},
             ]
         },
         {
