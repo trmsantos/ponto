@@ -22,6 +22,7 @@ import pickle
 import glob
 import pathlib
 import random
+import datetime
 
 from pyodbc import Cursor, Error, connect, lowercase
 from datetime import datetime
@@ -1071,6 +1072,42 @@ def RegistosRH(request, format=None):
     finally:
         connection_rponto.close()
         connection_sage.close()
+
+def GetEscalasSimulacao(request, format=None):
+    data_inicio_str = request.data.get('data_inicio', '2026-01-01')
+    dt_inicio = datetime.datetime.strptime(data_inicio_str, '%YYYY-%m-%d')
+    data_fim = (dt_inicio + datetime.timedelta(days=31)).replace(day=1) - datetime.timedelta(days=1)
+    data_fim_str = data_fim.strftime('%Y-%m-%d')
+
+    query = """
+    WITH Calendario AS (
+        SELECT CAST(%s AS DATE) AS dt
+        UNION ALL
+        SELECT DATEADD(DAY, 1, dt) FROM Calendario WHERE dt < CAST(%s AS DATE)
+    )
+    SELECT 
+        FORMAT(cal.dt, 'yyyy-MM-dd') AS data,
+        anc.equipa,
+        COALESCE(h.name, ciclo.turno_sigla) AS turno_real
+    FROM Calendario cal
+    CROSS JOIN rponto.dbo.ancora_equipas anc
+    LEFT JOIN rponto.dbo.ciclo_laboracao ciclo 
+        ON ciclo.esquema_tipo = anc.esquema_ativo 
+        AND ciclo.semana_id = ((DATEDIFF(DAY, anc.data_inicio_semana1, cal.dt) / 7) % 5) + 1
+        AND ciclo.dia_semana_iso = (DATEPART(WEEKDAY, cal.dt) + @@DATEFIRST - 2) % 7 + 1
+    LEFT JOIN rponto.dbo.holidays h 
+        ON h.holiday_date = cal.dt
+    ORDER BY cal.dt, anc.equipa
+    OPTION (MAXRECURSION 366);
+    """
+
+    with connection.cursor() as cursor:
+        cursor.execute(query, [data_inicio_str, data_fim_str])
+        columns = [col[0] for col in cursor.description]
+        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    return Response(rows)
+
 
 
 def GetFuncionarioInfo(num):
