@@ -22,10 +22,8 @@ import pickle
 import glob
 import pathlib
 import random
-import datetime
 
 from pyodbc import Cursor, Error, connect, lowercase
-from datetime import datetime
 from django.http.response import JsonResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes, renderer_classes
 from django.db import connections, transaction
@@ -1073,89 +1071,111 @@ def RegistosRH(request, format=None):
         connection_rponto.close()
         connection_sage.close()
 
-def GetEscalasSimulacao(request, format=None):
-    data_inicio_str = request.data.get('data_inicio', '2026-01-01')
-    dt_inicio = datetime.datetime.strptime(data_inicio_str, '%YYYY-%m-%d')
-    data_fim = (dt_inicio + datetime.timedelta(days=31)).replace(day=1) - datetime.timedelta(days=1)
-    data_fim_str = data_fim.strftime('%Y-%m-%d')
 
-    query = """
+
+def GetEscalasSimulacao(request, format=None):
+    data_inicio_str = request.data.get('data_inicio')
+    data_fim_str = request.data.get('data_fim')
+    
+    # Se data_inicio não fornecida, usa primeiro dia do mês atual
+    if not data_inicio_str:
+        dt_inicio = datetime.now().replace(day=1)
+        data_inicio_str = dt_inicio.strftime('%Y-%m-%d')
+    else:
+        dt_inicio = datetime.strptime(data_inicio_str, '%Y-%m-%d')
+    
+    # Se data_fim não fornecida, calcula último dia do mês
+    if not data_fim_str:
+        proximo_mes = (dt_inicio.replace(day=28) + timedelta(days=4)).replace(day=1)
+        data_fim = proximo_mes - timedelta(days=1)
+        data_fim_str = data_fim.strftime('%Y-%m-%d')
+    
+    query = f"""
+    SET DATEFIRST 1;
+    
     WITH Calendario AS (
-        SELECT CAST(%s AS DATE) AS dt
+        -- Gerar todas as datas no intervalo
+        SELECT CAST('{data_inicio_str}' AS DATE) AS dt
         UNION ALL
-        SELECT DATEADD(DAY, 1, dt) FROM Calendario WHERE dt < CAST(%s AS DATE)
+        SELECT DATEADD(DAY, 1, dt) 
+        FROM Calendario 
+        WHERE dt < CAST('{data_fim_str}' AS DATE)
     )
     SELECT 
         FORMAT(cal.dt, 'yyyy-MM-dd') AS data,
+        DATENAME(WEEKDAY, cal.dt) AS dia_semana,
         anc.equipa,
-        COALESCE(h.name, ciclo.turno_sigla) AS turno_real
+        anc.esquema_ativo AS esquema,
+        COALESCE(h.name, ciclo.turno_sigla) AS turno_sigla,
+        COALESCE(
+            CASE WHEN h.name IS NOT NULL THEN h.name ELSE t.nome END, 
+            'Sem turno'
+        ) AS turno_nome,
+        t.hora_inicio,
+        t.hora_fim,
+        t.cor_hex,
+        CASE WHEN h.name IS NOT NULL THEN 1 ELSE 0 END AS is_feriado,
+        h.name AS nome_feriado
     FROM Calendario cal
     CROSS JOIN rponto.dbo.ancora_equipas anc
     LEFT JOIN rponto.dbo.ciclo_laboracao ciclo 
         ON ciclo.esquema_tipo = anc.esquema_ativo 
+        AND ciclo.equipa_letra = anc.equipa
         AND ciclo.semana_id = ((DATEDIFF(DAY, anc.data_inicio_semana1, cal.dt) / 7) % 5) + 1
-        AND ciclo.dia_semana_iso = (DATEPART(WEEKDAY, cal.dt) + @@DATEFIRST - 2) % 7 + 1
-    LEFT JOIN rponto.dbo.holidays h 
-        ON h.holiday_date = cal.dt
-    ORDER BY cal.dt, anc.equipa
+        AND ciclo.dia_semana_iso = CASE 
+            WHEN DATEPART(WEEKDAY, cal.dt) = 1 THEN 7
+            ELSE DATEPART(WEEKDAY, cal.dt) - 1
+        END
+    LEFT JOIN rponto.dbo.turnos t ON t.sigla = ciclo.turno_sigla
+    LEFT JOIN rponto.dbo.holidays h ON h.holiday_date = cal.dt
+    ORDER BY cal.dt, anc.esquema_ativo, anc.equipa
     OPTION (MAXRECURSION 366);
     """
-
-    with connection.cursor() as cursor:
-        cursor.execute(query, [data_inicio_str, data_fim_str])
-        columns = [col[0] for col in cursor.description]
-        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
-
-    return Response(rows)
-
-
-
-def GetFuncionarioInfo(num):
-    """
-    Buscar nome de um funcionário específico
-    """
-    connection = connections[connSage100cName].cursor()
+    
     try:
-        sql = """
-            SELECT NFUNC, NOME
-            FROM TRIMTEK_1GEP.dbo.FUNC1
-            WHERE NFUNC = ?
-        """
-        connection.execute(sql, [num])
-        columns = [col[0] for col in connection.description]
-        row = connection.fetchone()
+        with connections[connMssqlName].cursor() as cursor:
+            cursor.execute(query)
+            columns = [col[0] for col in cursor.description]
+            rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
         
-        if row:
-            return dict(zip(columns, row))
-        return None
+        # Agrupar por data para facilitar o frontend
+        escalas_agrupadas = {}
+        for row in rows:
+            data = row['data']
+            if data not in escalas_agrupadas:
+                escalas_agrupadas[data] = {
+                    'data': data,
+                    'dia_semana': row['dia_semana'],
+                    'equipas': []
+                }
+            
+            escalas_agrupadas[data]['equipas'].append({
+                'equipa': row['equipa'],
+                'esquema': row['esquema'],
+                'turno_sigla': row['turno_sigla'],
+                'turno_nome': row['turno_nome'],
+                'hora_inicio': str(row['hora_inicio']) if row['hora_inicio'] else None,
+                'hora_fim': str(row['hora_fim']) if row['hora_fim'] else None,
+                'cor_hex': row['cor_hex'],
+                'is_feriado': bool(row['is_feriado']),
+                'nome_feriado': row['nome_feriado']
+            })
+        
+        return Response({
+            'success': True,
+            'data_inicio': data_inicio_str,
+            'data_fim': data_fim_str,
+            'total_dias': len(escalas_agrupadas),
+            'escalas': list(escalas_agrupadas.values())
+        })
+        
     except Exception as e:
-        print(f"Erro ao buscar funcionário {num}: {str(e)}")
-        return None
-    finally:
-        connection.close()
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=500)
 
 
-def ListAllFuncionarios():
-    """
-    Listar todos os funcionários
-    """
-    connection = connections[connSage100cName].cursor()
-    try:
-        sql = """
-            SELECT NFUNC, NOME
-            FROM TRIMTEK_1GEP.dbo.FUNC1
-            ORDER BY NOME
-        """
-        connection.execute(sql)
-        columns = [col[0] for col in connection.description]
-        rows = connection.fetchall()
-        
-        return [dict(zip(columns, row)) for row in rows]
-    except Exception as e:
-        print(f"Erro ao listar funcionários: {str(e)}")
-        return []
-    finally:
-        connection.close()
 
 
 def CalendarList(request, format=None):
