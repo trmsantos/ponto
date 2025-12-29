@@ -1073,13 +1073,8 @@ def RegistosRH(request, format=None):
 
 
 
+
 def GetEscalasSimulacao(request, format=None):
-    """
-    Endpoint para retornar escalas de equipas
-    CRÍTICO: 
-    - Armazém e Produção seguem dados inseridos manualmente para 2026
-    - Âncora: 1 Janeiro 2026 (Quinta-feira)
-    """
     parameters = request.data.get('parameters', {})
     data_inicio_str = parameters.get('data_inicio')
     data_fim_str = parameters.get('data_fim')
@@ -1095,7 +1090,7 @@ def GetEscalasSimulacao(request, format=None):
         data_fim = proximo_mes - timedelta(days=1)
         data_fim_str = data_fim.strftime('%Y-%m-%d')
     
-    # QUERY CORRIGIDA - Usar ordem_rotacao em vez de calcular semana
+    # Query para 2026 com rotação de 60 dias
     query = f"""
     SET DATEFIRST 1;
     
@@ -1113,10 +1108,7 @@ def GetEscalasSimulacao(request, format=None):
             anc.esquema_ativo,
             anc.data_inicio_semana1,
             DATEDIFF(DAY, anc.data_inicio_semana1, cal.dt) AS dias_desde_ancora,
-            CASE 
-                WHEN DATEPART(WEEKDAY, cal.dt) = 1 THEN 7
-                ELSE DATEPART(WEEKDAY, cal.dt) - 1
-            END AS dia_iso
+            DATEPART(WEEKDAY, cal.dt) AS dia_iso
         FROM Calendario cal
         CROSS JOIN rponto.dbo.ancora_equipas anc
         WHERE cal.dt >= anc.data_inicio_semana1
@@ -1126,20 +1118,40 @@ def GetEscalasSimulacao(request, format=None):
         DATENAME(WEEKDAY, dda.dt) AS dia_semana,
         ciclo.equipa_letra AS equipa,
         ciclo.esquema_tipo AS esquema,
-        COALESCE(h.name, ciclo.turno_sigla) AS turno_sigla,
-        COALESCE(
-            CASE WHEN h.name IS NOT NULL THEN h.name ELSE t.nome END, 
-            'Sem turno'
-        ) AS turno_nome,
-        t.hora_inicio,
-        t.hora_fim,
-        t.cor_hex,
-        CASE WHEN h.name IS NOT NULL THEN 1 ELSE 0 END AS is_feriado,
+        -- REGRA DE FERIADOS:
+        -- 1. Se Natal ou Ano Novo → Empresa fecha → DSC
+        -- 2. Se Véspera Natal ou Véspera Ano Novo → Dia dado → DSC
+        -- 3. Outros feriados → Trabalha normal (não força DSC)
+        CASE 
+            WHEN h.name IN ('Natal', 'Ano Novo') THEN 'DSC'
+            WHEN h.name IN ('Véspera de Natal', 'Véspera Ano Novo') THEN 'DSC'
+            ELSE ciclo.turno_sigla
+        END AS turno_sigla,
+        CASE
+            WHEN h.name IN ('Natal', 'Ano Novo', 'Véspera de Natal', 'Véspera Ano Novo') THEN h.name
+            ELSE COALESCE(t.nome, 'Sem turno')
+        END AS turno_nome,
+        CASE 
+            WHEN h.name IN ('Natal', 'Ano Novo', 'Véspera de Natal', 'Véspera Ano Novo') THEN NULL 
+            ELSE t.hora_inicio 
+        END AS hora_inicio,
+        CASE 
+            WHEN h.name IN ('Natal', 'Ano Novo', 'Véspera de Natal', 'Véspera Ano Novo') THEN NULL 
+            ELSE t.hora_fim 
+        END AS hora_fim,
+        CASE 
+            WHEN h.name IN ('Natal', 'Ano Novo', 'Véspera de Natal', 'Véspera Ano Novo') THEN '#E0E0E0'
+            ELSE t.cor_hex 
+        END AS cor_hex,
+        CASE 
+            WHEN h.name IN ('Natal', 'Ano Novo', 'Véspera de Natal', 'Véspera Ano Novo') THEN 1 
+            ELSE 0 
+        END AS is_feriado,
         h.name AS nome_feriado
     FROM DiasDesdAncora dda
     INNER JOIN rponto.dbo.ciclo_laboracao ciclo 
         ON ciclo.esquema_tipo = dda.esquema_ativo
-        AND ciclo.ordem_rotacao = (dda.dias_desde_ancora % 35) + 1
+        AND ciclo.ordem_rotacao = (dda.dias_desde_ancora % 60) + 1
         AND ciclo.dia_semana_iso = dda.dia_iso
     LEFT JOIN rponto.dbo.turnos t ON t.sigla = ciclo.turno_sigla
     LEFT JOIN rponto.dbo.holidays h ON h.holiday_date = dda.dt
@@ -1198,119 +1210,6 @@ def GetEscalasSimulacao(request, format=None):
             'success': False,
             'error': str(e)
         }, status=500)
-
-
-def query_dados_manuais(data_inicio, data_fim):
-    """
-    Query para 2026 - usa dados inseridos manualmente
-    """
-    return f"""
-    SET DATEFIRST 1;
-    
-    WITH Calendario AS (
-        SELECT CAST('{data_inicio}' AS DATE) AS dt
-        UNION ALL
-        SELECT DATEADD(DAY, 1, dt) 
-        FROM Calendario 
-        WHERE dt < CAST('{data_fim}' AS DATE)
-    )
-    SELECT 
-        FORMAT(cal.dt, 'yyyy-MM-dd') AS data,
-        DATENAME(WEEKDAY, cal.dt) AS dia_semana,
-        ciclo.equipa_letra AS equipa,
-        ciclo.esquema_tipo AS esquema,
-        COALESCE(h.name, ciclo.turno_sigla) AS turno_sigla,
-        COALESCE(
-            CASE WHEN h.name IS NOT NULL THEN h.name ELSE t.nome END, 
-            'Sem turno'
-        ) AS turno_nome,
-        t.hora_inicio,
-        t.hora_fim,
-        t.cor_hex,
-        CASE WHEN h.name IS NOT NULL THEN 1 ELSE 0 END AS is_feriado,
-        h.name AS nome_feriado
-    FROM Calendario cal
-    CROSS JOIN rponto.dbo.ancora_equipas anc
-    INNER JOIN rponto.dbo.ciclo_laboracao ciclo 
-        ON ciclo.esquema_tipo = anc.esquema_ativo 
-        AND cal.dt >= anc.data_inicio_semana1
-        AND ciclo.semana_id = ((DATEDIFF(DAY, anc.data_inicio_semana1, cal.dt) / 7) % 
-            CASE WHEN anc.esquema_ativo = 'Armazem' THEN 5 ELSE 5 END) + 1
-        AND ciclo.dia_semana_iso = CASE 
-            WHEN DATEPART(WEEKDAY, cal.dt) = 1 THEN 7
-            ELSE DATEPART(WEEKDAY, cal.dt) - 1
-        END
-    LEFT JOIN rponto.dbo.turnos t ON t.sigla = ciclo.turno_sigla
-    LEFT JOIN rponto.dbo.holidays h ON h.holiday_date = cal.dt
-    ORDER BY cal.dt, ciclo.esquema_tipo, ciclo.equipa_letra
-    OPTION (MAXRECURSION 366);
-    """
-
-
-def query_dados_dinamicos(data_inicio, data_fim):
-    return f"""
-    SET DATEFIRST 1;
-    
-    WITH Calendario AS (
-        SELECT CAST('{data_inicio}' AS DATE) AS dt
-        UNION ALL
-        SELECT DATEADD(DAY, 1, dt) 
-        FROM Calendario 
-        WHERE dt < CAST('{data_fim}' AS DATE)
-    ),
-    EscalasDinamicas AS (
-        SELECT 
-            cal.dt,
-            rot.equipa_letra,
-            rot.esquema_tipo,
-            -- Calcular qual esquema usar neste dia
-            CASE 
-                WHEN rot.esquema_tipo = 'Producao' THEN
-                    ((rot.esquema_inicial - 1 + 
-                      (DATEDIFF(WEEK, rot.data_referencia, cal.dt) % 5)
-                    ) % 5) + 1
-                ELSE  -- Armazem
-                    ((rot.esquema_inicial - 1 + 
-                      (DATEDIFF(WEEK, rot.data_referencia, cal.dt) % 3)
-                    ) % 3) + 1
-            END AS esquema_numero_calculado,
-            -- Dia da semana ISO
-            CASE 
-                WHEN DATEPART(WEEKDAY, cal.dt) = 1 THEN 7
-                ELSE DATEPART(WEEKDAY, cal.dt) - 1
-            END AS dia_iso
-        FROM Calendario cal
-        CROSS JOIN rponto.dbo.rotacao_inicial rot
-    )
-    SELECT 
-        FORMAT(ed.dt, 'yyyy-MM-dd') AS data,
-        DATENAME(WEEKDAY, ed.dt) AS dia_semana,
-        ed.equipa_letra AS equipa,
-        CASE 
-            WHEN ed.esquema_tipo = 'Producao' THEN 'Laboracao_Continua'
-            ELSE 'Armazem'
-        END AS esquema,
-        COALESCE(h.name, esq.turno_sigla) AS turno_sigla,
-        COALESCE(
-            CASE WHEN h.name IS NOT NULL THEN h.name ELSE t.nome END,
-            'Sem turno'
-        ) AS turno_nome,
-        t.hora_inicio,
-        t.hora_fim,
-        t.cor_hex,
-        CASE WHEN h.name IS NOT NULL THEN 1 ELSE 0 END AS is_feriado,
-        h.name AS nome_feriado
-    FROM EscalasDinamicas ed
-    INNER JOIN rponto.dbo.esquemas_teoricos esq
-        ON esq.esquema_tipo = ed.esquema_tipo
-        AND esq.esquema_numero = ed.esquema_numero_calculado
-        AND esq.dia_semana_iso = ed.dia_iso
-    LEFT JOIN rponto.dbo.turnos t ON t.sigla = esq.turno_sigla
-    LEFT JOIN rponto.dbo.holidays h ON h.holiday_date = ed.dt
-    ORDER BY ed.dt, ed.esquema_tipo, ed.equipa_letra
-    OPTION (MAXRECURSION 366);
-    """
-
 
 
 
