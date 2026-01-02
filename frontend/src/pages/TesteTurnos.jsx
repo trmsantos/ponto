@@ -1,15 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Typography, Spin, notification, Button, Tag, Tooltip, Segmented, Card, Space, Divider } from 'antd';
+import { Typography, Spin, notification, Button, Tag, Tooltip, Segmented, Card, Space, Divider, Badge } from 'antd';
 import { 
     LeftOutlined, 
     RightOutlined, 
     CalendarOutlined,
     DownloadOutlined,
-    FilterOutlined,
     TeamOutlined,
     ClockCircleOutlined,
     HomeOutlined,
-    ToolOutlined
+    ToolOutlined,
+    SunOutlined,
+    MoonOutlined,
+    CoffeeOutlined,
+    RestOutlined,
+    ThunderboltOutlined
 } from '@ant-design/icons';
 import { API_URL } from "config";
 import { fetchPost } from "utils/fetch";
@@ -22,25 +26,88 @@ dayjs.locale('pt');
 
 const { Title, Text } = Typography;
 
-export default function EscalaSimulacao() {
+export default function TurnosEquipas() {
     const [loading, setLoading] = useState(false);
     const [escalasData, setEscalasData] = useState([]);
-    const [currentMonth, setCurrentMonth] = useState(dayjs('2026-01-01')); // Começar em Janeiro 2026
+    const [currentMonth, setCurrentMonth] = useState(dayjs('2026-01-01'));
     const [selectedEquipas, setSelectedEquipas] = useState(['A', 'B', 'C', 'D', 'E']);
-    const [viewMode, setViewMode] = useState('geral'); // 'geral', 'armazem', 'producao'
-    const [api, contextHolder] = notification.useNotification();
+    const [viewMode, setViewMode] = useState('producao');
+    const [api, contextHolder] = notification. useNotification();
 
-    // Mapeamento de cores dos turnos - mais suaves e profissionais
-    const turnoColors = {
-        'NOI': { bg: '#EFF6FF', border: '#BFDBFE', text: '#1E40AF', label: 'Noite'},
-        'MAN': { bg: '#ECFDF5', border: '#A7F3D0', text: '#047857', label: 'Manhã'},
-        'TAR': { bg: '#FEF3C7', border: '#FCD34D', text: '#D97706', label: 'Tarde'},
-        'DSC': { bg: '#F9FAFB', border: '#E5E7EB', text: '#6B7280', label: 'Descanso' },
-        'REF': { bg: '#FAF5FF', border: '#E9D5FF', text: '#7C3AED', label: 'Reforço' },
-        'FER': { bg: '#FEE2E2', border: '#FECACA', text: '#DC2626', label: 'Feriado'}
+    // Cores dos turnos - design moderno com gradientes
+    const turnoConfig = {
+        'NOI': { 
+            bg: 'linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%)',
+            bgLight: '#EFF6FF',
+            border: '#3B82F6',
+            text: '#1E40AF',
+            textLight: '#FFFFFF',
+            label: 'Noite',
+            icon: <MoonOutlined />,
+            hours: '00:00 - 08:00'
+        },
+        'MAN': { 
+            bg: 'linear-gradient(135deg, #059669 0%, #10B981 100%)',
+            bgLight:  '#ECFDF5',
+            border: '#10B981',
+            text: '#047857',
+            textLight: '#FFFFFF',
+            label:  'Manhã',
+            icon:  <SunOutlined />,
+            hours: '08:00 - 16:00'
+        },
+        'TAR': { 
+            bg: 'linear-gradient(135deg, #D97706 0%, #F59E0B 100%)',
+            bgLight: '#FEF3C7',
+            border: '#F59E0B',
+            text: '#B45309',
+            textLight: '#FFFFFF',
+            label:  'Tarde',
+            icon: <CoffeeOutlined />,
+            hours:  '16:00 - 00:00'
+        },
+        'DSC': { 
+            bg: 'linear-gradient(135deg, #6B7280 0%, #9CA3AF 100%)',
+            bgLight: '#F3F4F6',
+            border: '#D1D5DB',
+            text: '#4B5563',
+            textLight: '#FFFFFF',
+            label: 'Descanso',
+            icon: <RestOutlined />,
+            hours: null
+        },
+        'REF': { 
+            bg: 'linear-gradient(135deg, #7C3AED 0%, #8B5CF6 100%)',
+            bgLight: '#F5F3FF',
+            border:  '#A78BFA',
+            text: '#6D28D9',
+            textLight: '#FFFFFF',
+            label: 'Reforço',
+            icon: <ThunderboltOutlined />,
+            hours: 'Variável'
+        },
+        'FER': { 
+            bg: 'linear-gradient(135deg, #DC2626 0%, #EF4444 100%)',
+            bgLight: '#FEF2F2',
+            border:  '#F87171',
+            text: '#B91C1C',
+            textLight: '#FFFFFF',
+            label: 'Férias',
+            icon: <SunOutlined />,
+            hours: null
+        }
     };
 
-    const loadSimulacao = useCallback(async () => {
+    // Cores das equipas
+    const equipaColors = {
+        'A': { bg: '#3B82F6', text: '#FFFFFF' },
+        'B': { bg: '#10B981', text: '#FFFFFF' },
+        'C': { bg: '#F59E0B', text: '#FFFFFF' },
+        'D': { bg:  '#EF4444', text: '#FFFFFF' },
+        'E': { bg: '#8B5CF6', text: '#FFFFFF' }
+    };
+
+    const loadTurnos = useCallback(async () => {
         setLoading(true);
         const start = currentMonth.startOf('month').format('YYYY-MM-DD');
         const end = currentMonth.endOf('month').format('YYYY-MM-DD');
@@ -50,27 +117,26 @@ export default function EscalaSimulacao() {
                 url: `${API_URL}/rponto/sqlp/`,
                 withCredentials: true,
                 parameters: {
-                    method: "GetEscalasSimulacao",
+                    method: "GetTurnosEquipas",
                     data_inicio: start,
                     data_fim: end
                 }
             });
 
-            if (response.data && response.data.success) {
+            if (response.data?. success) {
                 setEscalasData(response.data.escalas);
-                
                 api.success({
-                    message: 'Escalas carregadas',
+                    message:  'Turnos carregados',
                     description: `${response.data.total_dias} dias de ${currentMonth.format('MMMM YYYY')}`,
                     duration: 2,
                     placement: 'bottomRight'
                 });
             } else {
-                throw new Error(response.data?.error || 'Erro desconhecido');
+                throw new Error(response. data?.error || 'Erro desconhecido');
             }
         } catch (e) {
             api.error({ 
-                message: "Erro ao carregar escalas", 
+                message: "Erro ao carregar turnos", 
                 description: e.message,
                 duration: 4,
                 placement: 'topRight'
@@ -81,7 +147,7 @@ export default function EscalaSimulacao() {
     }, [currentMonth, api]);
 
     useEffect(() => { 
-        loadSimulacao(); 
+        loadTurnos(); 
     }, [currentMonth]);
 
     const toggleEquipa = (equipa) => {
@@ -89,15 +155,14 @@ export default function EscalaSimulacao() {
             if (selectedEquipas.length === 1) {
                 api.warning({ 
                     message: 'Atenção', 
-                    description: 'Mantenha pelo menos uma equipa selecionada',
-                    duration: 2,
-                    placement: 'topRight'
+                    description: 'Selecione pelo menos uma equipa',
+                    duration:  2
                 });
                 return;
             }
             setSelectedEquipas(selectedEquipas.filter(e => e !== equipa));
         } else {
-            setSelectedEquipas([...selectedEquipas, equipa].sort());
+            setSelectedEquipas([... selectedEquipas, equipa]. sort());
         }
     };
 
@@ -112,51 +177,76 @@ export default function EscalaSimulacao() {
         
         const producao = dayData.equipas.filter(eq => 
             eq.esquema === 'Laboracao_Continua' && 
-            selectedEquipas.includes(eq.equipa) &&
+            selectedEquipas.includes(eq. equipa) &&
             (viewMode === 'geral' || viewMode === 'producao')
         );
         
         return { armazem, producao };
     };
 
-    const renderTurnoCard = (eq, tipo) => {
-        const colors = turnoColors[eq.turno_sigla] || turnoColors['DSC'];
+    // Agrupar equipas por turno
+    const groupByTurno = (equipas) => {
+        const grouped = {};
+        equipas.forEach(eq => {
+            if (!grouped[eq. turno_sigla]) {
+                grouped[eq. turno_sigla] = [];
+            }
+            grouped[eq.turno_sigla].push(eq. equipa);
+        });
+        return grouped;
+    };
+
+    const renderTurnoGroup = (turnoSigla, equipas, tipo) => {
+        const config = turnoConfig[turnoSigla] || turnoConfig['DSC'];
         
         return (
-            <Tooltip 
-                key={`${tipo}-${eq.equipa}`}
+            <Tooltip
+                key={`${tipo}-${turnoSigla}`}
                 title={
-                    <div className="text-xs space-y-1">
-                        <div className="font-bold text-white">
-                            {colors.icon} Equipa {eq.equipa} - {colors.label}
+                    <div className="p-1">
+                        <div className="font-bold text-sm mb-1">
+                            {config.icon} {config.label}
                         </div>
-                        {eq.hora_inicio && (
-                            <div className="text-gray-200">
+                        {config.hours && (
+                            <div className="text-xs text-gray-200 mb-1">
                                 <ClockCircleOutlined className="mr-1" />
-                                {eq.hora_inicio.substring(0, 5)} - {eq.hora_fim.substring(0, 5)}
+                                {config. hours}
                             </div>
                         )}
-                        <div className="text-gray-300 text-[10px]">
-                            {tipo === 'arm' ? 'Armazém' : 'Produção'}
+                        <div className="text-xs">
+                            Equipas: {equipas.join(', ')}
                         </div>
                     </div>
                 }
                 placement="top"
-                overlayClassName="custom-tooltip"
             >
                 <div 
-                    className="flex items-center justify-between px-2 py-1 rounded-md transition-all hover:shadow-md cursor-pointer"
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg cursor-pointer transition-all hover:scale-105 hover:shadow-lg"
                     style={{ 
-                        backgroundColor: colors.bg,
-                        borderLeft: `3px solid ${colors.border}`
+                        background: config.bg,
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                     }}
                 >
-                    <span className="text-xs font-bold" style={{ color: colors.text }}>
-                        {eq.equipa}
+                    <span className="text-white text-[10px]">
+                        {config.icon}
                     </span>
-                    <span className="text-xs font-extrabold" style={{ color: colors.text }}>
-                        {eq.turno_sigla}
+                    <span className="text-white text-xs font-bold">
+                        {turnoSigla}
                     </span>
+                    <div className="flex -space-x-1">
+                        {equipas.map(eq => (
+                            <div
+                                key={eq}
+                                className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border-2 border-white shadow-sm"
+                                style={{ 
+                                    backgroundColor: equipaColors[eq].bg,
+                                    color: equipaColors[eq].text
+                                }}
+                            >
+                                {eq}
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </Tooltip>
         );
@@ -171,12 +261,12 @@ export default function EscalaSimulacao() {
         const calendarBoxes = [];
         const today = dayjs().format('YYYY-MM-DD');
         
-        // Dias do mês anterior (opacos)
+        // Dias do mês anterior
         for (let i = offset - 1; i >= 0; i--) {
             const prevDay = startOfMonth.subtract(i + 1, 'day');
             calendarBoxes.push(
-                <div key={`prev-${i}`} className="h-32 bg-gray-50 p-2 border border-gray-100 opacity-40">
-                    <span className="text-xs text-gray-400">{prevDay.date()}</span>
+                <div key={`prev-${i}`} className="min-h-[140px] bg-gray-50/50 p-2 border border-gray-100">
+                    <span className="text-xs text-gray-300 font-medium">{prevDay.date()}</span>
                 </div>
             );
         }
@@ -187,70 +277,104 @@ export default function EscalaSimulacao() {
             const dayData = escalasData.find(d => d.data === dateStr);
             const isToday = today === dateStr;
             const isWeekend = startOfMonth.date(day).isoWeekday() >= 6;
-            const isFeriado = dayData?.equipas.some(eq => eq.is_feriado);
+            const isFeriado = dayData?. equipas. some(eq => eq.is_feriado);
+            const nomeFeriado = dayData?.equipas.find(eq => eq.nome_feriado)?.nome_feriado;
             
             const { armazem, producao } = getFilteredEquipas(dayData);
+            const armazemGrouped = groupByTurno(armazem);
+            const producaoGrouped = groupByTurno(producao);
 
-            calendarBoxes.push(
+            calendarBoxes. push(
                 <div 
                     key={dateStr} 
                     className={`
-                        h-32 p-2 border transition-all relative overflow-hidden
-                        ${isToday ? 'ring-2 ring-indigo-500 bg-indigo-50' : 'bg-white'}
-                        ${isFeriado ? 'bg-gradient-to-br from-pink-50 to-pink-100 border-pink-300' : 'border-gray-200'}
-                        ${isWeekend && !isFeriado && !isToday ? 'bg-slate-50' : ''}
-                        hover:shadow-lg hover:z-10
+                        min-h-[140px] p-2 border transition-all relative group
+                        ${isToday ? 'ring-2 ring-indigo-500 ring-offset-2 bg-indigo-50/50' : 'bg-white'}
+                        ${isFeriado ? 'bg-gradient-to-br from-red-50 to-orange-50 border-red-200' : 'border-gray-200'}
+                        ${isWeekend && !isFeriado && ! isToday ? 'bg-slate-50/70' : ''}
+                        hover:shadow-xl hover:z-10 hover:border-indigo-300
                     `}
                 >
+                    {/* Indicador de fim de semana */}
+                    {isWeekend && ! isFeriado && (
+                        <div className="absolute top-0 right-0 w-0 h-0 border-t-[20px] border-t-slate-300 border-l-[20px] border-l-transparent" />
+                    )}
+
                     {/* Header do dia */}
                     <div className="flex justify-between items-start mb-2">
-                        <div className="flex items-center gap-1">
-                            {isToday ? (
-                                <div className="flex items-center gap-1">
-                                    <div className="w-6 h-6 bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-full flex items-center justify-center shadow-md">
-                                        <span className="text-xs font-bold">{day}</span>
+                        <div className="flex items-center gap-2">
+                            {isToday ?  (
+                                <Badge count="HOJE" size="small" style={{ backgroundColor: '#4F46E5' }}>
+                                    <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-xl flex items-center justify-center shadow-lg">
+                                        <span className="text-sm font-bold">{day}</span>
                                     </div>
-                                    <span className="text-[8px] text-indigo-600 font-bold uppercase">Hoje</span>
-                                </div>
+                                </Badge>
                             ) : (
-                                <span className={`text-sm font-bold ${isFeriado ? 'text-pink-600' : 'text-gray-700'}`}>
+                                <span className={`
+                                    text-lg font-bold 
+                                    ${isFeriado ? 'text-red-600' : isWeekend ? 'text-slate-500' : 'text-gray-800'}
+                                `}>
                                     {day}
                                 </span>
                             )}
                         </div>
                         
                         {isFeriado && (
-                            <span className="text-[8px] bg-pink-600 text-white px-1.5 py-0.5 rounded font-bold">
-                                FERIADO
-                            </span>
+                            <Tooltip title={nomeFeriado || 'Feriado'}>
+                                <Tag color="red" className="! m-0 ! text-[10px] !px-1.5 font-bold cursor-help">
+                                    🎉 FERIADO
+                                </Tag>
+                            </Tooltip>
                         )}
                     </div>
                     
-                    {/* Equipas */}
-                    <div className="space-y-1 overflow-y-auto max-h-20">
+                    {/* Conteúdo - Turnos agrupados */}
+                    <div className="space-y-2">
                         {/* Armazém */}
-                        {armazem.length > 0 && (
-                            <div className="space-y-0.5">
+                        {Object.keys(armazemGrouped).length > 0 && (
+                            <div>
                                 {viewMode === 'geral' && (
-                                    <div className="flex items-center gap-1 mb-0.5">
-                                        <HomeOutlined className="text-[8px] text-amber-600" />
-                                        <span className="text-[8px] font-bold text-amber-700 uppercase">Arm</span>
+                                    <div className="flex items-center gap-1 mb-1">
+                                        <HomeOutlined className="text-[10px] text-amber-600" />
+                                        <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide">
+                                            Armazém
+                                        </span>
                                     </div>
                                 )}
-                                {armazem.map(eq => renderTurnoCard(eq, 'arm'))}
+                                <div className="flex flex-wrap gap-1">
+                                    {Object.entries(armazemGrouped).map(([turno, eqs]) => 
+                                        renderTurnoGroup(turno, eqs, 'arm')
+                                    )}
+                                </div>
                             </div>
                         )}
                         
                         {/* Produção */}
-                        {producao.length > 0 && (
-                            <div className="space-y-0.5">
-                                {viewMode === 'geral' && armazem.length > 0 && (
-                                    <div className="flex items-center gap-1 mb-0.5 mt-1">
-                                        <ToolOutlined className="text-[8px] text-blue-600" />
-                                        <span className="text-[8px] font-bold text-blue-700 uppercase">Prod</span>
+                        {Object.keys(producaoGrouped).length > 0 && (
+                            <div>
+                                {viewMode === 'geral' && Object.keys(armazemGrouped).length > 0 && (
+                                    <Divider className="! my-1. 5" />
+                                )}
+                                {viewMode === 'geral' && (
+                                    <div className="flex items-center gap-1 mb-1">
+                                        <ToolOutlined className="text-[10px] text-blue-600" />
+                                        <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wide">
+                                            Produção
+                                        </span>
                                     </div>
                                 )}
-                                {producao.map(eq => renderTurnoCard(eq, 'prod'))}
+                                <div className="flex flex-wrap gap-1">
+                                    {Object.entries(producaoGrouped).map(([turno, eqs]) => 
+                                        renderTurnoGroup(turno, eqs, 'prod')
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Sem dados */}
+                        {Object.keys(armazemGrouped).length === 0 && Object.keys(producaoGrouped).length === 0 && (
+                            <div className="text-center py-4 text-gray-400">
+                                <Text className="text-xs">Sem turnos</Text>
                             </div>
                         )}
                     </div>
@@ -263,8 +387,8 @@ export default function EscalaSimulacao() {
         const remainingCells = Math.ceil(totalCells / 7) * 7 - totalCells;
         for (let i = 1; i <= remainingCells; i++) {
             calendarBoxes.push(
-                <div key={`next-${i}`} className="h-32 bg-gray-50 p-2 border border-gray-100 opacity-40">
-                    <span className="text-xs text-gray-400">{i}</span>
+                <div key={`next-${i}`} className="min-h-[140px] bg-gray-50/50 p-2 border border-gray-100">
+                    <span className="text-xs text-gray-300 font-medium">{i}</span>
                 </div>
             );
         }
@@ -273,114 +397,139 @@ export default function EscalaSimulacao() {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
+        <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-indigo-50 p-4 md:p-6">
             {contextHolder}
             
-            <div className="max-w-[1920px] mx-auto">
-                {/* Header Moderno */}
-                <Card className="mb-6 shadow-lg border-0">
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                        {/* Título e Info */}
-                        <div className="space-y-4">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg">
-                                    <CalendarOutlined className="text-white text-2xl" />
+            <div className="max-w-[1920px] mx-auto space-y-4">
+                {/* Header Card */}
+                <Card 
+                    className="shadow-xl border-0 overflow-hidden"
+                    styles={{ body: { padding: 0 } }}
+                >
+                    {/* Barra de cor no topo */}
+                    <div className="h-1. 5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+                    
+                    <div className="p-4 md:p-6">
+                        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+                            {/* Título e Navegação */}
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
+                                        <CalendarOutlined className="text-white text-xl" />
+                                    </div>
+                                    <div>
+                                        <Title level={3} className="! mb-0 ! text-slate-800 capitalize">
+                                            {currentMonth.format('MMMM YYYY')}
+                                        </Title>
+                                        <Text className="text-xs text-gray-500">
+                                            Gestão de Turnos por Equipa
+                                        </Text>
+                                    </div>
                                 </div>
-                                <div>
-                                    <Title level={2} className="!mb-0 !text-slate-800">
-                                        {currentMonth.format('MMMM YYYY').toUpperCase()}
-                                    </Title>
-                                    <Text className="text-sm text-gray-500">
-                                        Gestão de Escalas e Turnos
-                                    </Text>
+                                
+                                {/* Navegação do mês */}
+                                <div className="flex items-center gap-1">
+                                    <Button 
+                                        type="text"
+                                        icon={<LeftOutlined />} 
+                                        onClick={() => setCurrentMonth(currentMonth.subtract(1, 'month'))}
+                                        className="hover:! bg-indigo-50"
+                                    />
+                                    <Button 
+                                        type="primary"
+                                        size="small"
+                                        onClick={() => setCurrentMonth(dayjs())}
+                                        className="! bg-indigo-500 hover:!bg-indigo-600 ! border-0 !shadow-md"
+                                    >
+                                        Hoje
+                                    </Button>
+                                    <Button 
+                                        type="text"
+                                        icon={<RightOutlined />} 
+                                        onClick={() => setCurrentMonth(currentMonth. add(1, 'month'))}
+                                        className="hover:!bg-indigo-50"
+                                    />
                                 </div>
                             </div>
                             
-                            {/* Filtros de Vista */}
-                            <div className="flex flex-wrap items-center gap-3">
-                                <Text className="text-xs font-bold text-slate-600 uppercase">Vista:</Text>
-                                <Segmented
-                                    options={[
-                                        { label: 'Geral', value: 'geral', icon: <TeamOutlined /> },
-                                        { label: 'Armazém', value: 'armazem', icon: <HomeOutlined /> },
-                                        { label: 'Produção', value: 'producao', icon: <ToolOutlined /> }
-                                    ]}
-                                    value={viewMode}
-                                    onChange={setViewMode}
-                                    size="middle"
-                                />
+                            {/* Filtros */}
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                                {/* Filtro de Vista */}
+                                <div className="flex items-center gap-2">
+                                    <Text className="text-xs font-semibold text-slate-500 uppercase">Vista: </Text>
+                                    <Segmented
+                                        options={[
+                                            { label: 'Geral', value: 'geral', icon: <TeamOutlined /> },
+                                            { label: 'Armazém', value:  'armazem', icon: <HomeOutlined /> },
+                                            { label: 'Produção', value: 'producao', icon: <ToolOutlined /> }
+                                        ]}
+                                        value={viewMode}
+                                        onChange={setViewMode}
+                                        size="small"
+                                    />
+                                </div>
                                 
-                                <Divider type="vertical" className="h-8" />
+                                <Divider type="vertical" className="!h-8 hidden sm:block" />
                                 
-                                <Text className="text-xs font-bold text-slate-600 uppercase">Equipas:</Text>
-                                <Space wrap size={[4, 4]}>
-                                    {['A', 'B', 'C', 'D', 'E'].map(eq => (
-                                        <Tag.CheckableTag
-                                            key={eq}
-                                            checked={selectedEquipas.includes(eq)}
-                                            onChange={() => toggleEquipa(eq)}
-                                            className={`
-                                                !text-sm !font-bold !px-3 !py-1 !rounded-lg !border-2 transition-all
-                                                ${selectedEquipas.includes(eq) 
-                                                    ? '!bg-indigo-600 !text-white !border-indigo-600 shadow-md' 
-                                                    : '!bg-white !text-slate-600 !border-slate-300 hover:!border-indigo-400'
-                                                }
-                                            `}
-                                        >
-                                            {eq}
-                                        </Tag.CheckableTag>
-                                    ))}
-                                </Space>
+                                {/* Filtro de Equipas */}
+                                <div className="flex items-center gap-2">
+                                    <Text className="text-xs font-semibold text-slate-500 uppercase">Equipas:</Text>
+                                    <Space size={4}>
+                                        {['A', 'B', 'C', 'D', 'E'].map(eq => (
+                                            <div
+                                                key={eq}
+                                                onClick={() => toggleEquipa(eq)}
+                                                className={`
+                                                    w-8 h-8 rounded-lg flex items-center justify-center 
+                                                    text-sm font-bold cursor-pointer transition-all
+                                                    ${selectedEquipas.includes(eq) 
+                                                        ? 'shadow-lg scale-105' 
+                                                        : 'opacity-40 hover:opacity-70'
+                                                    }
+                                                `}
+                                                style={{ 
+                                                    backgroundColor:  selectedEquipas.includes(eq) 
+                                                        ?  equipaColors[eq]. bg 
+                                                        : '#E5E7EB',
+                                                    color: selectedEquipas.includes(eq) 
+                                                        ?  equipaColors[eq].text 
+                                                        : '#9CA3AF'
+                                                }}
+                                            >
+                                                {eq}
+                                            </div>
+                                        ))}
+                                    </Space>
+                                </div>
+                                
+                                <Divider type="vertical" className="! h-8 hidden sm:block" />
+                                
+                                {/* Exportar */}
+                                <Button 
+                                    icon={<DownloadOutlined />}
+                                    className="! border-green-500 ! text-green-600 hover:!bg-green-50 hover:!border-green-600"
+                                >
+                                    Exportar
+                                </Button>
                             </div>
-                        </div>
-                        
-                        {/* Controlos de Navegação */}
-                        <div className="flex flex-col gap-3">
-                            <Button.Group size="large">
-                                <Button 
-                                    icon={<LeftOutlined />} 
-                                    onClick={() => setCurrentMonth(currentMonth.subtract(1, 'month'))}
-                                >
-                                    Anterior
-                                </Button>
-                                <Button 
-                                    type="primary"
-                                    onClick={() => setCurrentMonth(dayjs())}
-                                    className="bg-gradient-to-r from-indigo-600 to-indigo-700 border-0 min-w-[120px]"
-                                >
-                                    Mês Atual
-                                </Button>
-                                <Button 
-                                    icon={<RightOutlined />} 
-                                    onClick={() => setCurrentMonth(currentMonth.add(1, 'month'))}
-                                    iconPosition="end"
-                                >
-                                    Próximo
-                                </Button>
-                            </Button.Group>
-                            
-                            <Button 
-                                size="large"
-                                icon={<DownloadOutlined />}
-                                className="border-2 border-green-600 text-green-600 hover:!bg-green-50 hover:!border-green-700 font-bold"
-                            >
-                                Exportar Excel
-                            </Button>
                         </div>
                     </div>
                 </Card>
 
-                {/* Calendário Principal */}
-                <Spin spinning={loading} tip="A carregar escalas..." size="large">
-                    <Card className="shadow-xl border-0">
-                        {/* Cabeçalho dos dias */}
-                        <div className="grid grid-cols-7 border-b-2 border-slate-200 mb-2">
-                            {['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'].map((day, idx) => (
+                {/* Calendário */}
+                <Spin spinning={loading} tip="A carregar turnos..." size="large">
+                    <Card className="shadow-xl border-0 overflow-hidden">
+                        {/* Cabeçalho dos dias da semana */}
+                        <div className="grid grid-cols-7 bg-gradient-to-r from-slate-700 to-slate-800">
+                            {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((day, idx) => (
                                 <div 
                                     key={day} 
-                                    className={`py-3 text-center ${idx >= 5 ? 'bg-slate-50' : ''}`}
+                                    className={`
+                                        py-3 text-center
+                                        ${idx >= 5 ?  'bg-slate-600/30' : ''}
+                                    `}
                                 >
-                                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                    <span className="text-xs font-bold text-white uppercase tracking-wider">
                                         {day}
                                     </span>
                                 </div>
@@ -388,29 +537,49 @@ export default function EscalaSimulacao() {
                         </div>
                         
                         {/* Grid do Calendário */}
-                        <div className="grid grid-cols-7 gap-px bg-slate-200 rounded-lg overflow-hidden">
+                        <div className="grid grid-cols-7">
                             {renderCalendarDays()}
                         </div>
                     </Card>
                 </Spin>
 
-                {/* Legenda Compacta */}
-                <Card className="mt-6 shadow-lg border-0">
-                    <div className="flex items-center justify-between flex-wrap gap-4">
-                        <Text className="text-sm font-bold text-slate-700 uppercase">Legenda:</Text>
-                        <Space wrap size={[12, 12]}>
-                            {Object.entries(turnoColors).map(([key, val]) => (
+                {/* Legenda */}
+                <Card className="shadow-lg border-0">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <Text className="text-xs font-bold text-slate-600 uppercase">Legenda de Turnos:</Text>
+                        <div className="flex flex-wrap items-center gap-3">
+                            {Object.entries(turnoConfig).map(([key, config]) => (
                                 <div key={key} className="flex items-center gap-2">
                                     <div 
-                                        className="w-4 h-4 rounded shadow-sm"
-                                        style={{ backgroundColor: val.bg, border: `2px solid ${val.border}` }}
-                                    />
-                                    <span className="text-xs font-semibold" style={{ color: val.text }}>
-                                        {val.icon} {val.label}
-                                    </span>
+                                        className="w-6 h-6 rounded-lg flex items-center justify-center shadow-sm"
+                                        style={{ background: config.bg }}
+                                    >
+                                        <span className="text-white text-[10px]">{config.icon}</span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-bold" style={{ color: config.text }}>
+                                            {key}
+                                        </span>
+                                        <span className="text-[10px] text-gray-400">{config.label}</span>
+                                    </div>
                                 </div>
                             ))}
-                        </Space>
+                        </div>
+                        
+                        <Divider type="vertical" className="!h-8 hidden md:block" />
+                        
+                        <div className="flex items-center gap-3">
+                            <Text className="text-xs font-bold text-slate-600 uppercase">Equipas:</Text>
+                            {Object.entries(equipaColors).map(([eq, colors]) => (
+                                <div
+                                    key={eq}
+                                    className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shadow-sm"
+                                    style={{ backgroundColor: colors.bg, color: colors.text }}
+                                >
+                                    {eq}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </Card>
             </div>
