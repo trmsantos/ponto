@@ -32,12 +32,12 @@ export default function EscalaSimulacao() {
 
     // Mapeamento de cores dos turnos - mais suaves e profissionais
     const turnoColors = {
-        'NOI': { bg: '#EFF6FF', border: '#BFDBFE', text: '#1E40AF', label: 'Noite', icon: '🌙' },
-        'MAN': { bg: '#ECFDF5', border: '#A7F3D0', text: '#047857', label: 'Manhã', icon: '☀️' },
-        'TAR': { bg: '#FEF3C7', border: '#FCD34D', text: '#D97706', label: 'Tarde', icon: '🌅' },
-        'DSC': { bg: '#F9FAFB', border: '#E5E7EB', text: '#6B7280', label: 'Descanso', icon: '💤' },
-        'REF': { bg: '#FAF5FF', border: '#E9D5FF', text: '#7C3AED', label: 'Reforço', icon: '⚡' },
-        'FER': { bg: '#FEE2E2', border: '#FECACA', text: '#DC2626', label: 'Feriado', icon: '🎉' }
+        'NOI': { bg: '#EFF6FF', border: '#BFDBFE', text: '#1E40AF', label: 'Noite'},
+        'MAN': { bg: '#ECFDF5', border: '#A7F3D0', text: '#047857', label: 'Manhã'},
+        'TAR': { bg: '#FEF3C7', border: '#FCD34D', text: '#D97706', label: 'Tarde'},
+        'DSC': { bg: '#F9FAFB', border: '#E5E7EB', text: '#6B7280', label: 'Descanso' },
+        'REF': { bg: '#FAF5FF', border: '#E9D5FF', text: '#7C3AED', label: 'Reforço' },
+        'FER': { bg: '#FEE2E2', border: '#FECACA', text: '#DC2626', label: 'Feriado'}
     };
 
     const loadSimulacao = useCallback(async () => {

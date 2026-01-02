@@ -1090,7 +1090,7 @@ def GetEscalasSimulacao(request, format=None):
         data_fim = proximo_mes - timedelta(days=1)
         data_fim_str = data_fim.strftime('%Y-%m-%d')
     
-    # Query para 2026 com rotação de 60 dias
+    # Query corrigida - SEM filtro dia_semana_iso
     query = f"""
     SET DATEFIRST 1;
     
@@ -1107,8 +1107,7 @@ def GetEscalasSimulacao(request, format=None):
             anc.equipa,
             anc.esquema_ativo,
             anc.data_inicio_semana1,
-            DATEDIFF(DAY, anc.data_inicio_semana1, cal.dt) AS dias_desde_ancora,
-            DATEPART(WEEKDAY, cal.dt) AS dia_iso
+            DATEDIFF(DAY, anc.data_inicio_semana1, cal.dt) AS dias_desde_ancora
         FROM Calendario cal
         CROSS JOIN rponto.dbo.ancora_equipas anc
         WHERE cal.dt >= anc.data_inicio_semana1
@@ -1118,41 +1117,42 @@ def GetEscalasSimulacao(request, format=None):
         DATENAME(WEEKDAY, dda.dt) AS dia_semana,
         ciclo.equipa_letra AS equipa,
         ciclo.esquema_tipo AS esquema,
-        -- REGRA DE FERIADOS:
-        -- 1. Se Natal ou Ano Novo → Empresa fecha → DSC
-        -- 2. Se Véspera Natal ou Véspera Ano Novo → Dia dado → DSC
-        -- 3. Outros feriados → Trabalha normal (não força DSC)
+        -- REGRA DE FERIADOS (apenas 4 dias específicos de 2026):
+        -- 1. Se 25/12/2026 (Natal) OU 01/01/2026 (Ano Novo) → Empresa fecha → DSC
+        -- 2. Se 24/12/2026 OU 31/12/2026 → Dia dado → DSC
+        -- 3. QUALQUER outro dia → Trabalha normal
         CASE 
-            WHEN h.name IN ('Natal', 'Ano Novo') THEN 'DSC'
-            WHEN h.name IN ('Véspera de Natal', 'Véspera Ano Novo') THEN 'DSC'
-            ELSE ciclo.turno_sigla
+            WHEN dda.dt IN ('2026-01-01', '2026-12-25') THEN 'DSC'  -- Empresa fecha
+            WHEN dda.dt IN ('2026-12-24', '2026-12-31') THEN 'DSC'  -- Dia dado
+            ELSE ciclo.turno_sigla  -- Trabalha normal
         END AS turno_sigla,
         CASE
-            WHEN h.name IN ('Natal', 'Ano Novo', 'Véspera de Natal', 'Véspera Ano Novo') THEN h.name
+            WHEN dda.dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN h.name
             ELSE COALESCE(t.nome, 'Sem turno')
         END AS turno_nome,
         CASE 
-            WHEN h.name IN ('Natal', 'Ano Novo', 'Véspera de Natal', 'Véspera Ano Novo') THEN NULL 
+            WHEN dda.dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN NULL 
             ELSE t.hora_inicio 
         END AS hora_inicio,
         CASE 
-            WHEN h.name IN ('Natal', 'Ano Novo', 'Véspera de Natal', 'Véspera Ano Novo') THEN NULL 
+            WHEN dda.dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN NULL 
             ELSE t.hora_fim 
         END AS hora_fim,
         CASE 
-            WHEN h.name IN ('Natal', 'Ano Novo', 'Véspera de Natal', 'Véspera Ano Novo') THEN '#E0E0E0'
+            WHEN dda.dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN '#E0E0E0'
             ELSE t.cor_hex 
         END AS cor_hex,
         CASE 
-            WHEN h.name IN ('Natal', 'Ano Novo', 'Véspera de Natal', 'Véspera Ano Novo') THEN 1 
+            WHEN dda.dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN 1 
             ELSE 0 
         END AS is_feriado,
         h.name AS nome_feriado
     FROM DiasDesdAncora dda
     INNER JOIN rponto.dbo.ciclo_laboracao ciclo 
         ON ciclo.esquema_tipo = dda.esquema_ativo
-        AND ciclo.ordem_rotacao = (dda.dias_desde_ancora % 60) + 1
-        AND ciclo.dia_semana_iso = dda.dia_iso
+        AND ciclo.ordem_rotacao = (dda.dias_desde_ancora % 365) + 1
+        -- CRÍTICO: NÃO filtrar por dia_semana_iso!
+        -- Janeiro começa Quinta, Fevereiro Domingo - os dias não batem
     LEFT JOIN rponto.dbo.turnos t ON t.sigla = ciclo.turno_sigla
     LEFT JOIN rponto.dbo.holidays h ON h.holiday_date = dda.dt
     ORDER BY dda.dt, ciclo.esquema_tipo, ciclo.equipa_letra
