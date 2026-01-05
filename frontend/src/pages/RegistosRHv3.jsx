@@ -12,10 +12,9 @@ import { DATE_FORMAT, DATETIME_FORMAT, DATE_FORMAT_NO_SEPARATOR } from 'config';
 import { MediaContext, AppContext } from "./App";
 import { isRH } from './commons';
 import { LayoutContext } from "./GridLayout";
+import DownloadReport from 'components/DownloadReportsV2';
 
-// ============================================================================
-// SVG ICONS
-// ============================================================================
+
 const Camera = ({ size = 16, className = '', ...props }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
     <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
@@ -1257,9 +1256,6 @@ const Fix = ({ record, onClose, onSuccess, openNotification }) => {
   );
 };
 
-// ============================================================================
-// MAIN TITLE AND COMPONENT
-// ============================================================================
 
 const title = "Registo de Picagens";
 
@@ -1274,9 +1270,6 @@ const TitleForm = ({ isRH }) => {
   );
 };
 
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
 export default ({ setFormTitle, ...props }) => {
   const { openNotification } = useContext(LayoutContext);
   const { auth } = useContext(AppContext);
@@ -1303,6 +1296,23 @@ export default ({ setFormTitle, ...props }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [totalPages, setTotalPages] = useState(1);
+
+
+    const exportColumns = [
+    { key: 'num', reportTitle: "Número" },
+    { key: 'nome_colaborador', reportTitle: "Nome" },
+    { key: 'data_turno', reportTitle: "Data" },
+    { key: 'hora_entrada', reportTitle: "Entrada" },
+    { key: 'hora_saida', reportTitle: "Saída" },
+    { key: 'duracao_turno', reportTitle: "Duração" },
+    { key: 'nt', reportTitle: "Picagens" },
+    ...Array.from({ length: 8 }, (_, i) => ({
+      key: `ss_${`${i + 1}`.padStart(2, '0')}`,
+      reportTitle: `P${i + 1}`
+    }))
+  ];
+  const colsExport = Object.fromEntries(exportColumns.map(col => [col.key, { title: col.reportTitle }]));
+
 
   useEffect(() => {
     loadData();
@@ -1360,18 +1370,10 @@ export default ({ setFormTitle, ...props }) => {
   };
 
   const columns = [
-    ...(isRH(auth, num) ? [{
-      key: 'num',
-      header: 'Nº',
-      width: '80px',
-      render: ({ value }) => (
-        <div className="flex items-center gap-2">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-bold text-sm">
-            {value}
-          </div>
-        </div>
-      )
-    }] : []),
+    ...isRH(auth, num) ? [
+        { key: 'num', name: 'Número', frozen: true, width: 90, formatter: p => <div style={{ fontWeight: 700 }}>{p.row.num}</div> },
+
+    ] : [],
     {
       key: 'dts',
       header: 'Data',
@@ -1471,18 +1473,31 @@ export default ({ setFormTitle, ...props }) => {
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-gray-50 to-gray-100">
       <div className="flex-1 flex flex-col p-4 overflow-hidden">
-        {/* Header with Settings Button */}
+        {/* Header with Settings Button + Export */}
         <div className="flex items-center justify-between mb-4">
           <div>
             {!setFormTitle && <TitleForm isRH={isRH(auth, num)} />}
           </div>
-          <Button
-            variant="primary"
-            onClick={() => setShowSettings(true)}
-            icon={<Settings size={18} />}
-          >
-            Configurações
-          </Button>
+          <div className="flex items-center gap-2">
+            <DownloadReport
+              cols={colsExport}
+              filter={{
+                ...filters,
+                ...(filters.fdateFrom && filters.fdateTo
+                  ? { fdata: [filters.fdateFrom, filters.fdateTo] }
+                  : {})
+              }}
+              filename={`picagens-${new Date().toISOString().slice(0,10)}.xlsx`}
+              className="ml-2"
+            />
+            <Button
+              variant="primary"
+              onClick={() => setShowSettings(true)}
+              icon={<Settings size={18} />}
+            >
+              Configurações
+            </Button>
+          </div>
         </div>
 
         {/* ==================== FILTROS VISÍVEIS ==================== */}
@@ -1588,7 +1603,7 @@ export default ({ setFormTitle, ...props }) => {
         </Card>
       </div>
 
-      {/* Settings Menu */}
+      {/* Drawers e Menus mantidos */}
       <SettingsMenu
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
@@ -1603,7 +1618,6 @@ export default ({ setFormTitle, ...props }) => {
         onInvalidRecords={() => setShowInvalidRecords(true)}
       />
 
-      {/* Biometrias Drawer */}
       <Drawer
         isOpen={showBiometrias}
         onClose={() => setShowBiometrias(false)}
@@ -1612,7 +1626,6 @@ export default ({ setFormTitle, ...props }) => {
         <Biometrias openNotification={openNotification} />
       </Drawer>
       
-      {/* Invalid Records Drawer */}
       <Drawer
         isOpen={showInvalidRecords}
         onClose={() => setShowInvalidRecords(false)}
@@ -1621,7 +1634,6 @@ export default ({ setFormTitle, ...props }) => {
         <InvalidRecords openNotification={openNotification} />
       </Drawer>
       
-      {/* Visual Records Drawer */}
       <Drawer
         isOpen={showVisualRecords}
         onClose={() => setShowVisualRecords(false)}
@@ -1635,7 +1647,6 @@ export default ({ setFormTitle, ...props }) => {
         )}
       </Drawer>
       
-      {/* Fix Records Drawer */}
       <Drawer
         isOpen={showFix}
         onClose={() => setShowFix(false)}

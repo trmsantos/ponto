@@ -2,6 +2,7 @@ import base64
 from operator import eq
 from pyexpat import features
 import re
+from io import BytesIO
 from typing import List
 from wsgiref.util import FileWrapper
 from rest_framework.generics import ListAPIView, RetrieveAPIView, CreateAPIView
@@ -46,6 +47,8 @@ import psycopg2
 from api.exports import export
 import face_recognition
 from PIL import Image, ImageEnhance, ImageOps, ImageFilter
+import openpyxl
+from openpyxl.styles import Font, Alignment
 
 connGatewayName = "postgres"
 connMssqlName = "sqlserver"
@@ -140,6 +143,7 @@ def get_client_ip(request):
         if not ip:
             ip = request.META.get('HTTP_X_REAL_IP', None)
     return ip
+
 
 @api_view(['POST'])
 @renderer_classes([JSONRenderer])
@@ -273,6 +277,8 @@ def preProcessImage(filepath,radius=None,brightness_factor=None):
                 #average_pixel = int(sum(list(blurred_image.getdata())) / len(list(blurred_image.getdata())))
                 gamma_corrected_image = ImageEnhance.Brightness(equalized_image).enhance(1.5)
                 return gamma_corrected_image.convert("RGB")
+                
+    
 
 @api_view(['GET'])
 @renderer_classes([JSONRenderer])
@@ -941,95 +947,133 @@ def RegistosRH(request, format=None):
         
         registos = response_rponto['rows']
         
+               # ============================================================
+        # NORMALIZAR TURNOS NOTURNOS
+        # ============================================================
+        registos_normalizados = []
+        
+        for registro in registos:
+            # Criar um dicionário auxiliar para agrupar picagens
+            picagens_dia = {
+                'num': registro['num'],
+                'dts_original': registro['dts'],
+                'id': registro['id'],
+                'nt': registro['nt'],
+                'picagens': []
+            }
+            
+            # Coletar todas as picagens do registro
+            for i in range(1, 9):
+                ss_key = f'ss_{i:02d}'
+                ty_key = f'ty_{i:02d}'
+
+                if registro.get(ss_key):
+                    valor_picagem = registro[ss_key]
+                    if isinstance(valor_picagem, str):
+                        dt_picagem = datetime.strptime(valor_picagem, '%Y-%m-%d %H:%M:%S')
+                    else:
+                        dt_picagem = valor_picagem  # já é datetime
+
+                    tipo = registro.get(ty_key, '').strip()
+
+                    picagens_dia['picagens'].append({
+                        'ordem': i,
+                        'timestamp': dt_picagem,
+                        'tipo': tipo,
+                        'ss_key': ss_key,
+                        'ty_key': ty_key
+                    })
+
+
+            if picagens_dia['picagens']:
+                # Determinar data do turno baseada na primeira picagem
+                primeira_picagem = picagens_dia['picagens'][0]['timestamp']
+                hora_primeira = primeira_picagem.hour
+                
+                # REGRA: Se primeira picagem é entre 22:00 e 05:59, 
+                # pertence ao turno do dia anterior (se hora >= 22) 
+                # ou já é do dia anterior (se hora < 6)
+                if hora_primeira >= 22:
+                    # Turno noturno que começa no dia atual
+                    data_turno = primeira_picagem.date()
+                elif hora_primeira < 6:
+                    # Turno noturno que continuou do dia anterior
+                    data_turno = (primeira_picagem - timedelta(days=1)).date()
+                else:
+                    # Turno normal (dia)
+                    data_turno = primeira_picagem.date()
+                
+                # Identificar tipo de turno
+                tipo_turno = identificar_tipo_turno(hora_primeira)
+                
+                # Adicionar informação normalizada ao registro
+                registro['data_turno'] = data_turno.strftime('%Y-%m-%d')
+                registro['tipo_turno'] = tipo_turno
+                registro['hora_entrada'] = picagens_dia['picagens'][0]['timestamp'].strftime('%H:%M')
+                registro['hora_saida'] = picagens_dia['picagens'][-1]['timestamp'].strftime('%H:%M') if len(picagens_dia['picagens']) > 1 else ''
+                
+                # Calcular duração do turno
+                if len(picagens_dia['picagens']) > 1:
+                    entrada = picagens_dia['picagens'][0]['timestamp']
+                    saida = picagens_dia['picagens'][-1]['timestamp']
+                    
+                    # Se saída é menor que entrada, passou da meia-noite
+                    if saida < entrada:
+                        saida = saida + timedelta(days=1)
+                    
+                    duracao = (saida - entrada).total_seconds() / 3600
+                    registro['duracao_turno'] = f"{duracao:.2f}h"
+                else:
+                    registro['duracao_turno'] = ''
+            
+            registos_normalizados.append(registro)
+        
         # ============================================================
         # BUSCAR NOMES DA FUNC1
         # ============================================================
-        nums_list = list(set([r['num'] for r in registos if r.get('num')]))
-        
-        print(f"Números a buscar em FUNC1: {nums_list}")
+        nums_list = list(set([r['num'] for r in registos_normalizados if r.get('num')]))
         
         if nums_list:
-            placeholders = ','.join(['%s' for _ in nums_list])  # ← %s em vez de ?
-            
+            placeholders = ','.join(['%s' for _ in nums_list])
             sql_func1 = f"""
-                SELECT 
-                    NFUNC,
-                    NOME
+                SELECT NFUNC, NOME
                 FROM TRIMTEK_1GEP.dbo.FUNC1
                 WHERE NFUNC IN ({placeholders})
             """
             
-            print("=" * 80)
-            print(f"Query FUNC1: {sql_func1}")
-            print(f"Nums para buscar: {nums_list[:10]}")  # Primeiros 10
-            print(f"Total de nums: {len(nums_list)}")
-            print("=" * 80)
+            connection_sage.execute(sql_func1, tuple(nums_list))
+            columns_func1 = [col[0] for col in connection_sage.description]
+            funcionarios_list = connection_sage.fetchall()
             
-            try:
-                print("Executando query na conexão sage100c...")
-                connection_sage.execute(sql_func1, tuple(nums_list))  # ← TUPLE!
-                print("Query executada com sucesso!")
-                
-                columns_func1 = [col[0] for col in connection_sage.description]
-                print(f"Colunas retornadas: {columns_func1}")
-                
-                funcionarios_list = connection_sage.fetchall()
-                print(f"Linhas retornadas: {len(funcionarios_list)}")
-                
-                print("=" * 80)
-                print("PRIMEIROS 5 RESULTADOS FUNC1:")
-                for i, row in enumerate(funcionarios_list[:5]):
-                    func_data = dict(zip(columns_func1, row))
-                    print(f"  {i+1}. NFUNC: '{func_data.get('NFUNC')}' | NOME: '{func_data.get('NOME')}'")
-                print("=" * 80)
-                
-                funcionarios_dict = {}
-                for row in funcionarios_list:
-                    func_data = dict(zip(columns_func1, row))
-                    funcionarios_dict[func_data['NFUNC']] = func_data
-                
-                print(f"Dicionário criado com {len(funcionarios_dict)} funcionários")
-                print(f"Primeiras 5 keys: {list(funcionarios_dict.keys())[:5]}")
-            except Exception as e:
-                print(f"Erro ao buscar FUNC1: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                funcionarios_dict = {}
-        else:
             funcionarios_dict = {}
-        
-        # ============================================================
-        # ADICIONAR NOME AOS REGISTOS
-        # ============================================================
-        print("=" * 80)
-        print("MAPEANDO NOMES AOS REGISTOS:")
-        for i, registro in enumerate(registos[:3]):  # Primeiros 3
-            num = registro.get('num')
-            funcionario = funcionarios_dict.get(num, {})
-            nome = funcionario.get('NOME', 'Nome não disponível')
+            for row in funcionarios_list:
+                func_data = dict(zip(columns_func1, row))
+                funcionarios_dict[func_data['NFUNC']] = func_data
             
-            print(f"  Registro {i+1}: num='{num}' -> funcionario={funcionario} -> nome='{nome}'")
-            
-            # Adicionar apenas NOME da FUNC1
-            registro['nome_colaborador'] = nome
-        
-        # Resto dos registos sem print
-        for registro in registos[3:]:
-            num = registro.get('num')
-            funcionario = funcionarios_dict.get(num, {})
-            registro['nome_colaborador'] = funcionario.get('NOME', 'Nome não disponível')
-        
-        print("=" * 80)
+            # Adicionar nomes aos registos
+            for registro in registos_normalizados:
+                num = registro.get('num')
+                funcionario = funcionarios_dict.get(num, {})
+                registro['nome_colaborador'] = funcionario.get('NOME', 'Nome não disponível')
         
         # ============================================================
         # FILTRO POR NOME
         # ============================================================
         fnome = request.data.get('filter', {}).get('fnome', '').lower()
         if fnome:
-            registos = [
-                r for r in registos 
+            registos_normalizados = [
+                r for r in registos_normalizados 
                 if fnome in r.get('nome_colaborador', '').lower()
             ]
+        
+        # ============================================================
+        # ORDENAR POR DATA DE TURNO (se aplicável)
+        # ============================================================
+        # Ordenar por data_turno em vez de dts para visualização mais lógica
+        registos_normalizados.sort(
+            key=lambda x: (x.get('data_turno', x.get('dts')), x.get('num')), 
+            reverse=True
+        )
         
         # ============================================================
         # EXPORT
@@ -1037,11 +1081,21 @@ def RegistosRH(request, format=None):
         if ("export" in request.data["parameters"]):
             dql.limit = f"""OFFSET 0 ROWS FETCH NEXT {request.data["parameters"]["limit"]} ROWS ONLY"""
             dql.paging = ""
+            
+            # Adicionar colunas de turno ao export
             new_cols = {}
             for key, value in request.data["parameters"].get("cols", {}).items():
                 new_cols[key] = value
-                if key == 'num':
-                    new_cols['nome_colaborador'] = {'title': 'Nome', 'width': 200}
+            
+            # Inserir colunas de turno após o número
+            if 'num' in new_cols:
+                new_cols['nome_colaborador'] = {'title': 'Nome', 'width': 200}
+                new_cols['data_turno'] = {'title': 'Data Turno', 'width': 100}
+                new_cols['tipo_turno'] = {'title': 'Tipo Turno', 'width': 100}
+                new_cols['hora_entrada'] = {'title': 'Entrada', 'width': 80}
+                new_cols['hora_saida'] = {'title': 'Saída', 'width': 80}
+                new_cols['duracao_turno'] = {'title': 'Duração', 'width': 80}
+            
             request.data["parameters"]["cols"] = new_cols
             
             return export(
@@ -1054,8 +1108,8 @@ def RegistosRH(request, format=None):
             )
         
         return Response({
-            "rows": registos,
-            "total": response_rponto.get('total', len(registos)),
+            "rows": registos_normalizados,
+            "total": response_rponto.get('total', len(registos_normalizados)),
             "page": dql.currentPage,
             "pageSize": dql.pageSize,
             "status": "success"
@@ -1072,17 +1126,29 @@ def RegistosRH(request, format=None):
         connection_sage.close()
 
 
+def identificar_tipo_turno(hora_entrada):
+    """
+    Identifica o tipo de turno baseado na hora de entrada
+    """
+    if 6 <= hora_entrada < 14:
+        return "MANHÃ (08:00-14:00)"
+    elif 14 <= hora_entrada < 22:
+        return "TARDE (14:00-22:00)"
+    else:  # 22:00-06:00
+        return "NOITE (22:00-06:00)"
+
+
 
 
 def GetTurnosEquipas(request, format=None):
-    parameters = request.data.get('parameters', {})
+    parameters = request.data. get('parameters', {})
     data_inicio_str = parameters.get('data_inicio')
     data_fim_str = parameters. get('data_fim')
     
     if not data_inicio_str: 
         dt_inicio = datetime.now().replace(day=1)
-        data_inicio_str = dt_inicio. strftime('%Y-%m-%d')
-    else:
+        data_inicio_str = dt_inicio.strftime('%Y-%m-%d')
+    else: 
         dt_inicio = datetime.strptime(data_inicio_str, '%Y-%m-%d')
     
     if not data_fim_str: 
@@ -1093,114 +1159,95 @@ def GetTurnosEquipas(request, format=None):
     query = f"""
     SET DATEFIRST 1;
     
-    WITH Calendario AS (
-        SELECT CAST('{data_inicio_str}' AS DATE) AS dt
-        UNION ALL
-        SELECT DATEADD(DAY, 1, dt) 
-        FROM Calendario 
-        WHERE dt < CAST('{data_fim_str}' AS DATE)
-    ),
-    DiasDesdAncora AS (
-        SELECT 
-            cal.dt,
-            anc.equipa,
-            anc. esquema_ativo,
-            anc.data_inicio_semana1,
-            DATEDIFF(DAY, anc.data_inicio_semana1, cal.dt) AS dias_desde_ancora
-        FROM Calendario cal
-        CROSS JOIN rponto.dbo. ancora_equipas anc
-        WHERE cal.dt >= anc.data_inicio_semana1
-    )
     SELECT 
-        FORMAT(dda.dt, 'yyyy-MM-dd') AS data,
-        DATENAME(WEEKDAY, dda. dt) AS dia_semana,
-        ciclo.equipa_letra AS equipa,
-        ciclo.esquema_tipo AS esquema,
+        FORMAT(DATEADD(DAY, c.ordem_rotacao - 1, '2026-01-01'), 'yyyy-MM-dd') AS data,
+        DATENAME(WEEKDAY, DATEADD(DAY, c.ordem_rotacao - 1, '2026-01-01')) AS dia_semana,
+        c.equipa_letra AS equipa,
+        c.esquema_tipo AS esquema,
         CASE 
-            WHEN dda.dt IN ('2026-01-01', '2026-12-25') THEN 'DSC'
-            WHEN dda.dt IN ('2026-12-24', '2026-12-31') THEN 'DSC'
-            ELSE ciclo.turno_sigla
+            WHEN c.ordem_rotacao IN (1, 358, 359, 365) THEN 'DSC'
+            ELSE c.turno_sigla
         END AS turno_sigla,
         CASE
-            WHEN dda.dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN h.name
-            ELSE COALESCE(t. nome, 'Sem turno')
+            WHEN c. ordem_rotacao IN (1, 358, 359, 365) THEN 'Feriado'
+            ELSE COALESCE(t.nome, 'Sem turno')
         END AS turno_nome,
         CASE 
-            WHEN dda.dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN NULL 
+            WHEN c.ordem_rotacao IN (1, 358, 359, 365) THEN NULL 
             ELSE t.hora_inicio 
         END AS hora_inicio,
         CASE 
-            WHEN dda. dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN NULL 
+            WHEN c.ordem_rotacao IN (1, 358, 359, 365) THEN NULL 
             ELSE t.hora_fim 
         END AS hora_fim,
         CASE 
-            WHEN dda.dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN '#E0E0E0'
+            WHEN c.ordem_rotacao IN (1, 358, 359, 365) THEN '#E0E0E0'
             ELSE t.cor_hex 
         END AS cor_hex,
         CASE 
-            WHEN dda.dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN 1 
+            WHEN c.ordem_rotacao IN (1, 358, 359, 365) THEN 1 
             ELSE 0 
         END AS is_feriado,
         h.name AS nome_feriado
-    FROM DiasDesdAncora dda
-    INNER JOIN rponto. dbo.ciclo_laboracao ciclo 
-        ON ciclo.esquema_tipo = dda.esquema_ativo
-        AND ciclo. equipa_letra = dda.equipa
-        AND ciclo. ordem_rotacao = (dda.dias_desde_ancora % 365) + 1
-    LEFT JOIN rponto.dbo.turnos t ON t.sigla = ciclo.turno_sigla
-    LEFT JOIN rponto. dbo.holidays h ON h.holiday_date = dda. dt
-    ORDER BY dda.dt, ciclo.esquema_tipo, ciclo.equipa_letra
-    OPTION (MAXRECURSION 366);
+    FROM rponto. dbo.ciclo_laboracao c
+    LEFT JOIN rponto. dbo.turnos t ON t.sigla = c.turno_sigla
+    LEFT JOIN rponto.dbo.holidays h ON h.holiday_date = DATEADD(DAY, c.ordem_rotacao - 1, '2026-01-01')
+    WHERE DATEADD(DAY, c.ordem_rotacao - 1, '2026-01-01') >= '{data_inicio_str}'
+      AND DATEADD(DAY, c.ordem_rotacao - 1, '2026-01-01') <= '{data_fim_str}'
+    ORDER BY c.ordem_rotacao, c.esquema_tipo, c.equipa_letra;
     """
     
     try:
         with connections[connMssqlName].cursor() as cursor:
-            cursor.execute(query)
-            columns = [col[0] for col in cursor. description]
-            rows = [dict(zip(columns, row)) for row in cursor. fetchall()]
+            cursor. execute(query)
+            columns = [col[0] for col in cursor.description]
+            rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
         
         escalas_agrupadas = {}
         
         dt_current = dt_inicio
         dt_end = datetime.strptime(data_fim_str, '%Y-%m-%d')
         
-        while dt_current <= dt_end: 
-            data_str = dt_current.strftime('%Y-%m-%d')
+        while dt_current <= dt_end:
+            data_str = dt_current. strftime('%Y-%m-%d')
             escalas_agrupadas[data_str] = {
-                'data': data_str,
-                'dia_semana':  dt_current.strftime('%A'),
-                'equipas':  []
+                'data':  data_str,
+                'dia_semana': dt_current. strftime('%A'),
+                'equipas': []
             }
             dt_current += timedelta(days=1)
         
         for row in rows:
             data = row['data']
             if data in escalas_agrupadas:
-                escalas_agrupadas[data]['equipas']. append({
+                escalas_agrupadas[data]['equipas'].append({
                     'equipa': row['equipa'],
                     'esquema': row['esquema'],
                     'turno_sigla': row['turno_sigla'],
-                    'turno_nome': row['turno_nome'],
-                    'hora_inicio': str(row['hora_inicio']) if row['hora_inicio'] else None,
+                    'turno_nome':  row['turno_nome'],
+                    'hora_inicio':  str(row['hora_inicio']) if row['hora_inicio'] else None,
                     'hora_fim': str(row['hora_fim']) if row['hora_fim'] else None,
-                    'cor_hex':  row['cor_hex'],
-                    'is_feriado': bool(row['is_feriado']),
+                    'cor_hex': row['cor_hex'],
+                    'is_feriado':  bool(row['is_feriado']),
                     'nome_feriado': row['nome_feriado']
                 })
         
         return Response({
-            'success':  True,
+            'success': True,
             'data_inicio': data_inicio_str,
-            'data_fim': data_fim_str,
-            'total_dias':  len(escalas_agrupadas),
+            'data_fim':  data_fim_str,
+            'total_dias': len(escalas_agrupadas),
             'escalas':  list(escalas_agrupadas.values())
         })
         
     except Exception as e:
         return Response({
             'success': False,
-            'error':  str(e)
+            'error': str(e)
         }, status=500)
+
+
+
 
 
 def CalendarList(request, format=None):
@@ -1633,6 +1680,9 @@ def CalendarList(request, format=None):
         return Response({"status": "error", "title": str(error)})
     return Response(response)    
 
+
+
+
 def GetCameraRecords(request, format=None):
     records = []
     parameters = request.data['parameters']
@@ -1649,4 +1699,215 @@ def GetCameraRecords(request, format=None):
             records.append({"filename":os.path.join(path,filename).replace("\\","/"),"tstamp":v})
     return Response(records)
 
+
+
+
+@api_view(['POST'])
+@renderer_classes([JSONRenderer])
+def ExportRegistosExcel(request):
+    filters = request.data.get('filter', {})
+    parameters = request.data.get('parameters', {})
+    cols_from_payload = parameters.get("cols", {})
+
+    connection_rponto = connections["sqlserver"].cursor()
+    connection_sage = connections["sage100c"].cursor()
+
+    sql = """
+        SELECT TR.id, TR.num, TR.dts,
+            TR.ss_01, TR.ty_01, TR.ss_02, TR.ty_02,
+            TR.ss_03, TR.ty_03, TR.ss_04, TR.ty_04,
+            TR.ss_05, TR.ty_05, TR.ss_06, TR.ty_06,
+            TR.ss_07, TR.ty_07, TR.ss_08, TR.ty_08,
+            TR.nt
+        FROM rponto.dbo.time_registration TR
+        WHERE 1=1
+    """
+    params = []
+
+    if filters.get('fnum'):
+        sql += " AND UPPER(TR.num) = %s"
+        params.append(filters['fnum'].upper())
+
+    fdate_from = filters.get('fdateFrom')
+    fdate_to = filters.get('fdateTo')
+    if fdate_from and fdate_to:
+        sql += " AND TR.dts BETWEEN %s AND %s"
+        params.extend([fdate_from, fdate_to])
+
+    sql += " ORDER BY TR.dts DESC, TR.num ASC"
+    connection_rponto.execute(sql, params)
+
+    columns = [col[0] for col in connection_rponto.description]
+    registos = [dict(zip(columns, row)) for row in connection_rponto.fetchall()]
+
+    # --- Lógica de Nomes (Sage) ---
+    nums_list = list(set([r['num'] for r in registos if r.get('num')]))
+    funcionarios_dict = {}
+    if nums_list:
+        placeholders = ','.join(['%s'] * len(nums_list))
+        sql_func1 = f"SELECT NFUNC, NOME FROM TRIMTEK_1GEP.dbo.FUNC1 WHERE NFUNC IN ({placeholders})"
+        connection_sage.execute(sql_func1, nums_list)
+        for row in connection_sage.fetchall():
+            funcionarios_dict[row[0]] = row[1]
+
+    for r in registos:
+        r['nome_colaborador'] = funcionarios_dict.get(r['num'], 'Nome não disponível')
+
+    # 5. Agrupar Turnos
+    registos_agrupados = processar_picagens_v4(registos)
+
+    # 6. Criar Excel
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Picagens"
+
+    # Estilos
+    header_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
+    header_font = Font(bold=True)
+    center_alignment = Alignment(horizontal='center')
+
+    header_keys = []
+    header_titles = []
+    for key, config in cols_from_payload.items():
+        header_keys.append(key)
+        header_titles.append(config.get('title', key) if isinstance(config, dict) else config)
+
+    # Escrever Cabeçalho
+    ws.append(header_titles)
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_alignment
+
+    # Escrever Dados
+    for row in registos_agrupados:
+        line = [str(row.get(k, '')) if row.get(k) is not None else '' for k in header_keys]
+        ws.append(line)
+
+    # 7. Auto-Dimensionar Colunas
+    for col in ws.columns:
+        max_length = 0
+        column_letter = col[0].column_letter
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except: pass
+        ws.column_dimensions[column_letter].width = max_length + 4
+
+    # 8. Enviar Resposta
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    response = HttpResponse(
+        output.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = 'attachment; filename=registos_picagens.xlsx'
+    
+    wb.close()
+    output.close()
+    return response
+
+
+def processar_picagens_v4(registos):
+    GAP_NOVO_TURNO = 3.5  
+    MAX_HORAS_EXTRA = 15.0 
+
+    users_data = {}
+    for r in registos:
+        u = r.get('num')
+        if not u: continue
+        if u not in users_data:
+            users_data[u] = {'info': r, 'pics': []}
+        
+        for i in range(1, 9):
+            val = r.get(f'ss_{i:02d}')
+            if val:
+                if isinstance(val, str):
+                    try: dt = datetime.strptime(val[:19], '%Y-%m-%d %H:%M:%S')
+                    except: continue
+                else: dt = val
+                users_data[u]['pics'].append({'dt': dt, 'tipo': r.get(f'ty_{i:02d}', '')})
+
+    resultado_final = []
+
+    for u, data in users_data.items():
+        todas_pics = sorted(data['pics'], key=lambda x: x['dt'])
+        if not todas_pics: continue
+
+        turnos = []
+        bloco_atual = []
+
+        for p in todas_pics:
+            if not bloco_atual:
+                bloco_atual.append(p)
+                continue
+            
+            inicio_bloco = bloco_atual[0]['dt']
+            ultima_pic = bloco_atual[-1]['dt']
+            horas_desde_inicio = (p['dt'] - inicio_bloco).total_seconds() / 3600
+            horas_desde_ultima = (p['dt'] - ultima_pic).total_seconds() / 3600
+
+            if horas_desde_inicio > MAX_HORAS_EXTRA or (len(bloco_atual) % 2 == 0 and horas_desde_ultima > GAP_NOVO_TURNO):
+                turnos.append(bloco_atual)
+                bloco_atual = [p]
+            else:
+                bloco_atual.append(p)
+
+        if bloco_atual:
+            turnos.append(bloco_atual)
+
+        for t in turnos:
+            row = data['info'].copy()
+            for i in range(1, 9):
+                row[f'ss_{i:02d}'] = None
+
+            ent = t[0]['dt']
+            sai = t[-1]['dt'] if len(t) > 1 else None
+            
+            # AJUSTE: Se sai no dia seguinte, assume a data da saída
+            if sai and sai.date() > ent.date():
+                data_referencia = sai.date()
+            else:
+                data_referencia = ent.date()
+            
+            row['data_turno'] = data_referencia.strftime('%Y-%m-%d')
+            row['hora_entrada'] = ent.strftime('%H:%M:%S')
+            row['hora_saida'] = sai.strftime('%H:%M:%S') if sai else ""
+            
+            if sai:
+                dur = (sai - ent).total_seconds() / 3600
+                row['duracao_turno'] = f"{dur:.2f}h"
+            else:
+                row['duracao_turno'] = ""
+
+            for i, p in enumerate(t[:8]):
+                row[f'ss_{i+1:02d}'] = p['dt'].strftime('%Y-%m-%d %H:%M:%S')
+            
+            row['nt'] = len(t)
+            resultado_final.append(row)
+
+    return sorted(resultado_final, key=lambda x: (x['data_turno'], x['num']), reverse=True)
+
+
+
+
+def get_picagens_from_row(registo):
+    picagens = []
+    for i in range(1, 9):
+        ss_key = f'ss_{i:02d}'
+        ty_key = f'ty_{i:02d}'
+        ss_val = registo.get(ss_key)
+        ty_val = registo.get(ty_key)
+        
+        if ss_val:
+            dt_pic = ss_val if isinstance(ss_val, datetime) else datetime.strptime(str(ss_val)[:19], '%Y-%m-%d %H:%M:%S')
+            picagens.append({'dt': dt_pic, 'tipo': (ty_val or '').strip(), 'ordem': i})
+    
+    return sorted(picagens, key=lambda x: x['dt'])
+
+def grouped_list_to_desc(lista):
+    return sorted(lista, key=lambda x: (x.get('data_turno', ''), x.get('hora_entrada', '')), reverse=True)
     

@@ -841,7 +841,15 @@ export default ({ setFormTitle, ...props }) => {
   }
 
   const columns = [
-    ...isRH(auth, num) ? [{ key: 'num', name: 'Número', frozen: true, width: 90, formatter: p => <div style={{ fontWeight: 700 }}>{p.row.num}</div> }] : [],
+     ...isRH(auth, num) ? [
+        { key: 'num', name: 'Número', frozen: true, width: 90, formatter: p => <div style={{ fontWeight: 700 }}>{p.row.num}</div> },
+        { key: 'nome_colaborador', name: 'Nome', width: 200, formatter: p => <div style={{ fontWeight: 700 }}>{p.row.nome_colaborador}</div> },
+        { key: 'data_turno', name: 'Data Turno', width: 100, reportTitle: 'Data do Turno' },
+        { key: 'tipo_turno', name: 'Tipo Turno', width: 120, reportTitle: 'Tipo de Turno' },
+        { key: 'hora_entrada', name: 'Entrada', width: 80 },
+        { key: 'hora_saida', name: 'Saída', width: 80 },
+        { key: 'duracao_turno', name: 'Duração', width: 80 },
+    ] : [],
     { key: 'dts', width: 100, name: 'Data', frozen: true, formatter: p => dayjs(p.row.dts).format(DATE_FORMAT) },
     ...(isRH(auth, num)) ? [{ key: 'baction', name: '', minWidth: 45, maxWidth: 40, formatter: p => <Button icon={<EditOutlined />} size="small" onClick={() => onFix(p.row)} /> }] : [],
     ...isRH(auth, num) ? [{ key: 'SRN_0', name: 'Nome', width: '0.94fr', formatter: p => <div style={{ fontWeight: 700 }}>{`${p.row.SRN_0} ${p.row.NAM_0}`}</div> }] : [],
