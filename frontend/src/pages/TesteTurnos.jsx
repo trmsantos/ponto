@@ -8,12 +8,7 @@ import {
     TeamOutlined,
     ClockCircleOutlined,
     HomeOutlined,
-    ToolOutlined,
-    SunOutlined,
-    MoonOutlined,
-    CoffeeOutlined,
-    RestOutlined,
-    ThunderboltOutlined
+    ToolOutlined
 } from '@ant-design/icons';
 import { API_URL } from "config";
 import { fetchPost } from "utils/fetch";
@@ -34,46 +29,38 @@ export default function TurnosEquipas() {
     const [viewMode, setViewMode] = useState('producao');
     const [api, contextHolder] = notification. useNotification();
 
-    // Cores dos turnos - design moderno com gradientes
+    // Cores dos turnos
     const turnoConfig = {
         'NOI': { 
             bg: 'linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%)',
             bgLight: '#EFF6FF',
             border: '#3B82F6',
             text: '#1E40AF',
-            textLight: '#FFFFFF',
             label: 'Noite',
-            icon: <MoonOutlined />,
             hours: '00:00 - 08:00'
         },
         'MAN': { 
-            bg: 'linear-gradient(135deg, #059669 0%, #10B981 100%)',
-            bgLight:  '#ECFDF5',
+            bg:  'linear-gradient(135deg, #059669 0%, #10B981 100%)',
+            bgLight: '#ECFDF5',
             border: '#10B981',
             text: '#047857',
-            textLight: '#FFFFFF',
-            label:  'Manhã',
-            icon:  <SunOutlined />,
+            label: 'Manhã',
             hours: '08:00 - 16:00'
         },
         'TAR': { 
             bg: 'linear-gradient(135deg, #D97706 0%, #F59E0B 100%)',
             bgLight: '#FEF3C7',
             border: '#F59E0B',
-            text: '#B45309',
-            textLight: '#FFFFFF',
-            label:  'Tarde',
-            icon: <CoffeeOutlined />,
-            hours:  '16:00 - 00:00'
+            text:  '#B45309',
+            label: 'Tarde',
+            hours: '16:00 - 00:00'
         },
         'DSC': { 
             bg: 'linear-gradient(135deg, #6B7280 0%, #9CA3AF 100%)',
             bgLight: '#F3F4F6',
             border: '#D1D5DB',
             text: '#4B5563',
-            textLight: '#FFFFFF',
             label: 'Descanso',
-            icon: <RestOutlined />,
             hours: null
         },
         'REF': { 
@@ -81,30 +68,26 @@ export default function TurnosEquipas() {
             bgLight: '#F5F3FF',
             border:  '#A78BFA',
             text: '#6D28D9',
-            textLight: '#FFFFFF',
             label: 'Reforço',
-            icon: <ThunderboltOutlined />,
-            hours: 'Variável'
+            hours:  'Variável'
         },
         'FER': { 
             bg: 'linear-gradient(135deg, #DC2626 0%, #EF4444 100%)',
             bgLight: '#FEF2F2',
-            border:  '#F87171',
+            border: '#F87171',
             text: '#B91C1C',
-            textLight: '#FFFFFF',
             label: 'Férias',
-            icon: <SunOutlined />,
             hours: null
         }
     };
 
     // Cores das equipas
     const equipaColors = {
-        'A': { bg: '#3B82F6', text: '#FFFFFF' },
+        'A':  { bg: '#3B82F6', text: '#FFFFFF' },
         'B': { bg: '#10B981', text: '#FFFFFF' },
         'C': { bg: '#F59E0B', text: '#FFFFFF' },
-        'D': { bg:  '#EF4444', text: '#FFFFFF' },
-        'E': { bg: '#8B5CF6', text: '#FFFFFF' }
+        'D': { bg:  '#EF4444', text:  '#FFFFFF' },
+        'E':  { bg: '#8B5CF6', text: '#FFFFFF' }
     };
 
     const loadTurnos = useCallback(async () => {
@@ -124,9 +107,9 @@ export default function TurnosEquipas() {
             });
 
             if (response.data?. success) {
-                setEscalasData(response.data.escalas);
+                setEscalasData(response.data. escalas);
                 api.success({
-                    message:  'Turnos carregados',
+                    message: 'Turnos carregados',
                     description: `${response.data.total_dias} dias de ${currentMonth.format('MMMM YYYY')}`,
                     duration: 2,
                     placement: 'bottomRight'
@@ -137,7 +120,7 @@ export default function TurnosEquipas() {
         } catch (e) {
             api.error({ 
                 message: "Erro ao carregar turnos", 
-                description: e.message,
+                description: e. message,
                 duration: 4,
                 placement: 'topRight'
             });
@@ -167,7 +150,7 @@ export default function TurnosEquipas() {
     };
 
     const getFilteredEquipas = (dayData) => {
-        if (!dayData) return { armazem: [], producao: [] };
+        if (! dayData) return { armazem: [], producao: [] };
         
         const armazem = dayData.equipas.filter(eq => 
             eq.esquema === 'Armazem' && 
@@ -175,7 +158,7 @@ export default function TurnosEquipas() {
             (viewMode === 'geral' || viewMode === 'armazem')
         );
         
-        const producao = dayData.equipas.filter(eq => 
+        const producao = dayData. equipas.filter(eq => 
             eq.esquema === 'Laboracao_Continua' && 
             selectedEquipas.includes(eq. equipa) &&
             (viewMode === 'geral' || viewMode === 'producao')
@@ -189,7 +172,7 @@ export default function TurnosEquipas() {
         const grouped = {};
         equipas.forEach(eq => {
             if (!grouped[eq. turno_sigla]) {
-                grouped[eq. turno_sigla] = [];
+                grouped[eq.turno_sigla] = [];
             }
             grouped[eq.turno_sigla].push(eq. equipa);
         });
@@ -205,7 +188,7 @@ export default function TurnosEquipas() {
                 title={
                     <div className="p-1">
                         <div className="font-bold text-sm mb-1">
-                            {config.icon} {config.label}
+                            {config.emoji} {config.label}
                         </div>
                         {config.hours && (
                             <div className="text-xs text-gray-200 mb-1">
@@ -227,8 +210,8 @@ export default function TurnosEquipas() {
                         boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                     }}
                 >
-                    <span className="text-white text-[10px]">
-                        {config.icon}
+                    <span className="text-[10px]">
+                        {config.emoji}
                     </span>
                     <span className="text-white text-xs font-bold">
                         {turnoSigla}
@@ -239,8 +222,8 @@ export default function TurnosEquipas() {
                                 key={eq}
                                 className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border-2 border-white shadow-sm"
                                 style={{ 
-                                    backgroundColor: equipaColors[eq].bg,
-                                    color: equipaColors[eq].text
+                                    backgroundColor: equipaColors[eq]?.bg || '#6B7280',
+                                    color: equipaColors[eq]?.text || '#FFFFFF'
                                 }}
                             >
                                 {eq}
@@ -254,7 +237,7 @@ export default function TurnosEquipas() {
 
     const renderCalendarDays = () => {
         const startOfMonth = currentMonth.startOf('month');
-        const daysInMonth = currentMonth.daysInMonth();
+        const daysInMonth = currentMonth. daysInMonth();
         const firstDayWeekday = startOfMonth.isoWeekday();
         const offset = firstDayWeekday - 1;
 
@@ -265,7 +248,7 @@ export default function TurnosEquipas() {
         for (let i = offset - 1; i >= 0; i--) {
             const prevDay = startOfMonth.subtract(i + 1, 'day');
             calendarBoxes.push(
-                <div key={`prev-${i}`} className="min-h-[140px] bg-gray-50/50 p-2 border border-gray-100">
+                <div key={`prev-${i}`} className="min-h-[140px] bg-gray-50 p-2 border border-gray-100 opacity-50">
                     <span className="text-xs text-gray-300 font-medium">{prevDay.date()}</span>
                 </div>
             );
@@ -277,8 +260,8 @@ export default function TurnosEquipas() {
             const dayData = escalasData.find(d => d.data === dateStr);
             const isToday = today === dateStr;
             const isWeekend = startOfMonth.date(day).isoWeekday() >= 6;
-            const isFeriado = dayData?. equipas. some(eq => eq.is_feriado);
-            const nomeFeriado = dayData?.equipas.find(eq => eq.nome_feriado)?.nome_feriado;
+            const isFeriado = dayData?. equipas?.some(eq => eq.is_feriado);
+            const nomeFeriado = dayData?.equipas?. find(eq => eq. nome_feriado)?.nome_feriado;
             
             const { armazem, producao } = getFilteredEquipas(dayData);
             const armazemGrouped = groupByTurno(armazem);
@@ -289,17 +272,12 @@ export default function TurnosEquipas() {
                     key={dateStr} 
                     className={`
                         min-h-[140px] p-2 border transition-all relative group
-                        ${isToday ? 'ring-2 ring-indigo-500 ring-offset-2 bg-indigo-50/50' : 'bg-white'}
+                        ${isToday ? 'ring-2 ring-indigo-500 ring-offset-2 bg-indigo-50' :  'bg-white'}
                         ${isFeriado ? 'bg-gradient-to-br from-red-50 to-orange-50 border-red-200' : 'border-gray-200'}
-                        ${isWeekend && !isFeriado && ! isToday ? 'bg-slate-50/70' : ''}
+                        ${isWeekend && !isFeriado && ! isToday ? 'bg-slate-50' : ''}
                         hover:shadow-xl hover:z-10 hover:border-indigo-300
                     `}
                 >
-                    {/* Indicador de fim de semana */}
-                    {isWeekend && ! isFeriado && (
-                        <div className="absolute top-0 right-0 w-0 h-0 border-t-[20px] border-t-slate-300 border-l-[20px] border-l-transparent" />
-                    )}
-
                     {/* Header do dia */}
                     <div className="flex justify-between items-start mb-2">
                         <div className="flex items-center gap-2">
@@ -321,8 +299,8 @@ export default function TurnosEquipas() {
                         
                         {isFeriado && (
                             <Tooltip title={nomeFeriado || 'Feriado'}>
-                                <Tag color="red" className="! m-0 ! text-[10px] !px-1.5 font-bold cursor-help">
-                                    🎉 FERIADO
+                                <Tag color="red" className="! m-0 !text-[10px] ! px-1.5 font-bold cursor-help">
+                                     FERIADO
                                 </Tag>
                             </Tooltip>
                         )}
@@ -387,7 +365,7 @@ export default function TurnosEquipas() {
         const remainingCells = Math.ceil(totalCells / 7) * 7 - totalCells;
         for (let i = 1; i <= remainingCells; i++) {
             calendarBoxes.push(
-                <div key={`next-${i}`} className="min-h-[140px] bg-gray-50/50 p-2 border border-gray-100">
+                <div key={`next-${i}`} className="min-h-[140px] bg-gray-50 p-2 border border-gray-100 opacity-50">
                     <span className="text-xs text-gray-300 font-medium">{i}</span>
                 </div>
             );
@@ -402,12 +380,9 @@ export default function TurnosEquipas() {
             
             <div className="max-w-[1920px] mx-auto space-y-4">
                 {/* Header Card */}
-                <Card 
-                    className="shadow-xl border-0 overflow-hidden"
-                    styles={{ body: { padding: 0 } }}
-                >
+                <Card className="shadow-xl border-0 overflow-hidden">
                     {/* Barra de cor no topo */}
-                    <div className="h-1. 5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+                    <div className="h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
                     
                     <div className="p-4 md:p-6">
                         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
@@ -446,8 +421,8 @@ export default function TurnosEquipas() {
                                     <Button 
                                         type="text"
                                         icon={<RightOutlined />} 
-                                        onClick={() => setCurrentMonth(currentMonth. add(1, 'month'))}
-                                        className="hover:!bg-indigo-50"
+                                        onClick={() => setCurrentMonth(currentMonth.add(1, 'month'))}
+                                        className="hover:! bg-indigo-50"
                                     />
                                 </div>
                             </div>
@@ -459,9 +434,9 @@ export default function TurnosEquipas() {
                                     <Text className="text-xs font-semibold text-slate-500 uppercase">Vista: </Text>
                                     <Segmented
                                         options={[
-                                            { label: 'Geral', value: 'geral', icon: <TeamOutlined /> },
-                                            { label: 'Armazém', value:  'armazem', icon: <HomeOutlined /> },
-                                            { label: 'Produção', value: 'producao', icon: <ToolOutlined /> }
+                                            { label: 'Geral', value: 'geral' },
+                                            { label: 'Armazém', value: 'armazem' },
+                                            { label:  'Produção', value: 'producao' }
                                         ]}
                                         value={viewMode}
                                         onChange={setViewMode}
@@ -489,11 +464,11 @@ export default function TurnosEquipas() {
                                                 `}
                                                 style={{ 
                                                     backgroundColor:  selectedEquipas.includes(eq) 
-                                                        ?  equipaColors[eq]. bg 
+                                                        ? equipaColors[eq]?.bg 
                                                         : '#E5E7EB',
                                                     color: selectedEquipas.includes(eq) 
-                                                        ?  equipaColors[eq].text 
-                                                        : '#9CA3AF'
+                                                        ?  equipaColors[eq]?.text 
+                                                        :  '#9CA3AF'
                                                 }}
                                             >
                                                 {eq}
@@ -504,13 +479,6 @@ export default function TurnosEquipas() {
                                 
                                 <Divider type="vertical" className="! h-8 hidden sm:block" />
                                 
-                                {/* Exportar */}
-                                <Button 
-                                    icon={<DownloadOutlined />}
-                                    className="! border-green-500 ! text-green-600 hover:!bg-green-50 hover:!border-green-600"
-                                >
-                                    Exportar
-                                </Button>
                             </div>
                         </div>
                     </div>
@@ -526,7 +494,7 @@ export default function TurnosEquipas() {
                                     key={day} 
                                     className={`
                                         py-3 text-center
-                                        ${idx >= 5 ?  'bg-slate-600/30' : ''}
+                                        ${idx >= 5 ? 'bg-slate-600/30' : ''}
                                     `}
                                 >
                                     <span className="text-xs font-bold text-white uppercase tracking-wider">
@@ -546,7 +514,7 @@ export default function TurnosEquipas() {
                 {/* Legenda */}
                 <Card className="shadow-lg border-0">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <Text className="text-xs font-bold text-slate-600 uppercase">Legenda de Turnos:</Text>
+                        <Text className="text-xs font-bold text-slate-600 uppercase">Legenda de Turnos: </Text>
                         <div className="flex flex-wrap items-center gap-3">
                             {Object.entries(turnoConfig).map(([key, config]) => (
                                 <div key={key} className="flex items-center gap-2">
@@ -554,7 +522,7 @@ export default function TurnosEquipas() {
                                         className="w-6 h-6 rounded-lg flex items-center justify-center shadow-sm"
                                         style={{ background: config.bg }}
                                     >
-                                        <span className="text-white text-[10px]">{config.icon}</span>
+                                        <span className="text-[10px]">{config.emoji}</span>
                                     </div>
                                     <div className="flex flex-col">
                                         <span className="text-xs font-bold" style={{ color: config.text }}>

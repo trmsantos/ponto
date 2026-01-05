@@ -1074,23 +1074,22 @@ def RegistosRH(request, format=None):
 
 
 
-def GetEscalasSimulacao(request, format=None):
+def GetTurnosEquipas(request, format=None):
     parameters = request.data.get('parameters', {})
     data_inicio_str = parameters.get('data_inicio')
-    data_fim_str = parameters.get('data_fim')
+    data_fim_str = parameters. get('data_fim')
     
-    if not data_inicio_str:
+    if not data_inicio_str: 
         dt_inicio = datetime.now().replace(day=1)
-        data_inicio_str = dt_inicio.strftime('%Y-%m-%d')
+        data_inicio_str = dt_inicio. strftime('%Y-%m-%d')
     else:
         dt_inicio = datetime.strptime(data_inicio_str, '%Y-%m-%d')
     
-    if not data_fim_str:
-        proximo_mes = (dt_inicio.replace(day=28) + timedelta(days=4)).replace(day=1)
+    if not data_fim_str: 
+        proximo_mes = (dt_inicio. replace(day=28) + timedelta(days=4)).replace(day=1)
         data_fim = proximo_mes - timedelta(days=1)
-        data_fim_str = data_fim.strftime('%Y-%m-%d')
+        data_fim_str = data_fim. strftime('%Y-%m-%d')
     
-    # Query corrigida - SEM filtro dia_semana_iso
     query = f"""
     SET DATEFIRST 1;
     
@@ -1105,37 +1104,33 @@ def GetEscalasSimulacao(request, format=None):
         SELECT 
             cal.dt,
             anc.equipa,
-            anc.esquema_ativo,
+            anc. esquema_ativo,
             anc.data_inicio_semana1,
             DATEDIFF(DAY, anc.data_inicio_semana1, cal.dt) AS dias_desde_ancora
         FROM Calendario cal
-        CROSS JOIN rponto.dbo.ancora_equipas anc
+        CROSS JOIN rponto.dbo. ancora_equipas anc
         WHERE cal.dt >= anc.data_inicio_semana1
     )
     SELECT 
         FORMAT(dda.dt, 'yyyy-MM-dd') AS data,
-        DATENAME(WEEKDAY, dda.dt) AS dia_semana,
+        DATENAME(WEEKDAY, dda. dt) AS dia_semana,
         ciclo.equipa_letra AS equipa,
         ciclo.esquema_tipo AS esquema,
-        -- REGRA DE FERIADOS (apenas 4 dias específicos de 2026):
-        -- 1. Se 25/12/2026 (Natal) OU 01/01/2026 (Ano Novo) → Empresa fecha → DSC
-        -- 2. Se 24/12/2026 OU 31/12/2026 → Dia dado → DSC
-        -- 3. QUALQUER outro dia → Trabalha normal
         CASE 
-            WHEN dda.dt IN ('2026-01-01', '2026-12-25') THEN 'DSC'  -- Empresa fecha
-            WHEN dda.dt IN ('2026-12-24', '2026-12-31') THEN 'DSC'  -- Dia dado
-            ELSE ciclo.turno_sigla  -- Trabalha normal
+            WHEN dda.dt IN ('2026-01-01', '2026-12-25') THEN 'DSC'
+            WHEN dda.dt IN ('2026-12-24', '2026-12-31') THEN 'DSC'
+            ELSE ciclo.turno_sigla
         END AS turno_sigla,
         CASE
             WHEN dda.dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN h.name
-            ELSE COALESCE(t.nome, 'Sem turno')
+            ELSE COALESCE(t. nome, 'Sem turno')
         END AS turno_nome,
         CASE 
             WHEN dda.dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN NULL 
             ELSE t.hora_inicio 
         END AS hora_inicio,
         CASE 
-            WHEN dda.dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN NULL 
+            WHEN dda. dt IN ('2026-01-01', '2026-12-24', '2026-12-25', '2026-12-31') THEN NULL 
             ELSE t.hora_fim 
         END AS hora_fim,
         CASE 
@@ -1148,13 +1143,12 @@ def GetEscalasSimulacao(request, format=None):
         END AS is_feriado,
         h.name AS nome_feriado
     FROM DiasDesdAncora dda
-    INNER JOIN rponto.dbo.ciclo_laboracao ciclo 
+    INNER JOIN rponto. dbo.ciclo_laboracao ciclo 
         ON ciclo.esquema_tipo = dda.esquema_ativo
-        AND ciclo.ordem_rotacao = (dda.dias_desde_ancora % 365) + 1
-        -- CRÍTICO: NÃO filtrar por dia_semana_iso!
-        -- Janeiro começa Quinta, Fevereiro Domingo - os dias não batem
+        AND ciclo. equipa_letra = dda.equipa
+        AND ciclo. ordem_rotacao = (dda.dias_desde_ancora % 365) + 1
     LEFT JOIN rponto.dbo.turnos t ON t.sigla = ciclo.turno_sigla
-    LEFT JOIN rponto.dbo.holidays h ON h.holiday_date = dda.dt
+    LEFT JOIN rponto. dbo.holidays h ON h.holiday_date = dda. dt
     ORDER BY dda.dt, ciclo.esquema_tipo, ciclo.equipa_letra
     OPTION (MAXRECURSION 366);
     """
@@ -1162,55 +1156,51 @@ def GetEscalasSimulacao(request, format=None):
     try:
         with connections[connMssqlName].cursor() as cursor:
             cursor.execute(query)
-            columns = [col[0] for col in cursor.description]
-            rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            columns = [col[0] for col in cursor. description]
+            rows = [dict(zip(columns, row)) for row in cursor. fetchall()]
         
-        # Agrupar por data
         escalas_agrupadas = {}
         
-        # Gerar estrutura para todos os dias
         dt_current = dt_inicio
         dt_end = datetime.strptime(data_fim_str, '%Y-%m-%d')
         
-        while dt_current <= dt_end:
+        while dt_current <= dt_end: 
             data_str = dt_current.strftime('%Y-%m-%d')
             escalas_agrupadas[data_str] = {
                 'data': data_str,
-                'dia_semana': dt_current.strftime('%A'),
-                'equipas': []
+                'dia_semana':  dt_current.strftime('%A'),
+                'equipas':  []
             }
             dt_current += timedelta(days=1)
         
-        # Preencher com dados
         for row in rows:
             data = row['data']
             if data in escalas_agrupadas:
-                escalas_agrupadas[data]['equipas'].append({
+                escalas_agrupadas[data]['equipas']. append({
                     'equipa': row['equipa'],
                     'esquema': row['esquema'],
                     'turno_sigla': row['turno_sigla'],
                     'turno_nome': row['turno_nome'],
                     'hora_inicio': str(row['hora_inicio']) if row['hora_inicio'] else None,
                     'hora_fim': str(row['hora_fim']) if row['hora_fim'] else None,
-                    'cor_hex': row['cor_hex'],
+                    'cor_hex':  row['cor_hex'],
                     'is_feriado': bool(row['is_feriado']),
                     'nome_feriado': row['nome_feriado']
                 })
         
         return Response({
-            'success': True,
+            'success':  True,
             'data_inicio': data_inicio_str,
             'data_fim': data_fim_str,
-            'total_dias': len(escalas_agrupadas),
-            'escalas': list(escalas_agrupadas.values())
+            'total_dias':  len(escalas_agrupadas),
+            'escalas':  list(escalas_agrupadas.values())
         })
         
     except Exception as e:
         return Response({
             'success': False,
-            'error': str(e)
+            'error':  str(e)
         }, status=500)
-
 
 
 def CalendarList(request, format=None):
