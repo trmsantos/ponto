@@ -863,7 +863,7 @@ def UpdateRecords(request, format=None):
         return Response({"status": "error", "title": str(error)})
 
 def RegistosRH(request, format=None):
-    print("RegistosRH - Iniciando (APENAS rponto + SAGE100C)...")
+    print("RegistosRH")
     
     connection_rponto = connections[connMssqlName].cursor()
     connection_sage = connections[connSage100cName].cursor()
@@ -880,12 +880,8 @@ def RegistosRH(request, format=None):
         f.setParameters({
             **rangeP(f.filterData.get('fdata'), 'dts', lambda k, v: f'CONVERT(DATE, dts)'),
             "fnum": {
-                "value": lambda v: v.get('fnum').lower() if v.get('fnum') else None,
-                "field": lambda k, v: f'lower(TR.num)'
-            },
-            "num": {
-                "value": lambda v: f"=={v.get('num')}" if v.get('num') is not None else None, 
-                "field": lambda k, v: f'TR.{k}'
+                "value": lambda v: v.get('fnum').upper() if v.get('fnum') else None,
+                "field": lambda k, v: f'TR.num'
             },
         }, True)
         f.where()
@@ -926,7 +922,6 @@ def RegistosRH(request, format=None):
         print(f"Query rponto: {sql_rponto(lambda v:v, lambda v:v, lambda v:v)}")
         print(f"Parameters: {parameters}")
         
-        # Executar query rponto
         response_rponto = dbmssql.executeList(
             sql_rponto, 
             connection_rponto, 
@@ -947,13 +942,9 @@ def RegistosRH(request, format=None):
         
         registos = response_rponto['rows']
         
-               # ============================================================
-        # NORMALIZAR TURNOS NOTURNOS
-        # ============================================================
         registos_normalizados = []
         
         for registro in registos:
-            # Criar um dicionário auxiliar para agrupar picagens
             picagens_dia = {
                 'num': registro['num'],
                 'dts_original': registro['dts'],
@@ -962,7 +953,6 @@ def RegistosRH(request, format=None):
                 'picagens': []
             }
             
-            # Coletar todas as picagens do registro
             for i in range(1, 9):
                 ss_key = f'ss_{i:02d}'
                 ty_key = f'ty_{i:02d}'
@@ -972,7 +962,7 @@ def RegistosRH(request, format=None):
                     if isinstance(valor_picagem, str):
                         dt_picagem = datetime.strptime(valor_picagem, '%Y-%m-%d %H:%M:%S')
                     else:
-                        dt_picagem = valor_picagem  # já é datetime
+                        dt_picagem = valor_picagem
 
                     tipo = registro.get(ty_key, '').strip()
 
@@ -984,40 +974,28 @@ def RegistosRH(request, format=None):
                         'ty_key': ty_key
                     })
 
-
             if picagens_dia['picagens']:
-                # Determinar data do turno baseada na primeira picagem
                 primeira_picagem = picagens_dia['picagens'][0]['timestamp']
                 hora_primeira = primeira_picagem.hour
                 
-                # REGRA: Se primeira picagem é entre 22:00 e 05:59, 
-                # pertence ao turno do dia anterior (se hora >= 22) 
-                # ou já é do dia anterior (se hora < 6)
                 if hora_primeira >= 22:
-                    # Turno noturno que começa no dia atual
                     data_turno = primeira_picagem.date()
                 elif hora_primeira < 6:
-                    # Turno noturno que continuou do dia anterior
                     data_turno = (primeira_picagem - timedelta(days=1)).date()
                 else:
-                    # Turno normal (dia)
                     data_turno = primeira_picagem.date()
                 
-                # Identificar tipo de turno
                 tipo_turno = identificar_tipo_turno(hora_primeira)
                 
-                # Adicionar informação normalizada ao registro
                 registro['data_turno'] = data_turno.strftime('%Y-%m-%d')
                 registro['tipo_turno'] = tipo_turno
                 registro['hora_entrada'] = picagens_dia['picagens'][0]['timestamp'].strftime('%H:%M')
                 registro['hora_saida'] = picagens_dia['picagens'][-1]['timestamp'].strftime('%H:%M') if len(picagens_dia['picagens']) > 1 else ''
                 
-                # Calcular duração do turno
                 if len(picagens_dia['picagens']) > 1:
                     entrada = picagens_dia['picagens'][0]['timestamp']
                     saida = picagens_dia['picagens'][-1]['timestamp']
                     
-                    # Se saída é menor que entrada, passou da meia-noite
                     if saida < entrada:
                         saida = saida + timedelta(days=1)
                     
@@ -1028,9 +1006,6 @@ def RegistosRH(request, format=None):
             
             registos_normalizados.append(registro)
         
-        # ============================================================
-        # BUSCAR NOMES DA FUNC1
-        # ============================================================
         nums_list = list(set([r['num'] for r in registos_normalizados if r.get('num')]))
         
         if nums_list:
@@ -1050,15 +1025,11 @@ def RegistosRH(request, format=None):
                 func_data = dict(zip(columns_func1, row))
                 funcionarios_dict[func_data['NFUNC']] = func_data
             
-            # Adicionar nomes aos registos
             for registro in registos_normalizados:
                 num = registro.get('num')
                 funcionario = funcionarios_dict.get(num, {})
                 registro['nome_colaborador'] = funcionario.get('NOME', 'Nome não disponível')
         
-        # ============================================================
-        # FILTRO POR NOME
-        # ============================================================
         fnome = request.data.get('filter', {}).get('fnome', '').lower()
         if fnome:
             registos_normalizados = [
@@ -1066,28 +1037,19 @@ def RegistosRH(request, format=None):
                 if fnome in r.get('nome_colaborador', '').lower()
             ]
         
-        # ============================================================
-        # ORDENAR POR DATA DE TURNO (se aplicável)
-        # ============================================================
-        # Ordenar por data_turno em vez de dts para visualização mais lógica
         registos_normalizados.sort(
             key=lambda x: (x.get('data_turno', x.get('dts')), x.get('num')), 
             reverse=True
         )
         
-        # ============================================================
-        # EXPORT
-        # ============================================================
         if ("export" in request.data["parameters"]):
             dql.limit = f"""OFFSET 0 ROWS FETCH NEXT {request.data["parameters"]["limit"]} ROWS ONLY"""
             dql.paging = ""
             
-            # Adicionar colunas de turno ao export
             new_cols = {}
             for key, value in request.data["parameters"].get("cols", {}).items():
                 new_cols[key] = value
             
-            # Inserir colunas de turno após o número
             if 'num' in new_cols:
                 new_cols['nome_colaborador'] = {'title': 'Nome', 'width': 200}
                 new_cols['data_turno'] = {'title': 'Data Turno', 'width': 100}
@@ -1109,7 +1071,7 @@ def RegistosRH(request, format=None):
         
         return Response({
             "rows": registos_normalizados,
-            "total": response_rponto.get('total', len(registos_normalizados)),
+            "total": len(registos_normalizados),
             "page": dql.currentPage,
             "pageSize": dql.pageSize,
             "status": "success"
