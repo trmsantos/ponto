@@ -48,7 +48,7 @@ from api.exports import export
 import face_recognition
 from PIL import Image, ImageEnhance, ImageOps, ImageFilter
 import openpyxl
-from openpyxl.styles import Font, Alignment
+from openpyxl.styles import Font, Alignment, PatternFill
 
 connGatewayName = "postgres"
 connMssqlName = "sqlserver"
@@ -1702,194 +1702,179 @@ def GetCameraRecords(request, format=None):
 
 
 
+
+
 @api_view(['POST'])
 @renderer_classes([JSONRenderer])
 def ExportRegistosExcel(request):
-    filters = request.data.get('filter', {})
-    parameters = request.data.get('parameters', {})
-    cols_from_payload = parameters.get("cols", {})
+    filtros = request.data.get('filter', {})
+    fdate_from_raw = filtros.get('fdateFrom')
+    fdate_to_raw = filtros.get('fdateTo')
+    fnum_filter = filtros.get('fnum', '').strip()
 
-    connection_rponto = connections["sqlserver"].cursor()
-    connection_sage = connections["sage100c"].cursor()
+    if not fdate_from_raw or not fdate_to_raw:
+        return HttpResponse("Filtros de data ausentes.", status=400)
+
+    d_start_str = fdate_from_raw[:10]
+    d_end_str = fdate_to_raw[:10]
+
+    d_next_day = (datetime.strptime(d_end_str, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+
+    connection_rponto = connections[connMssqlName].cursor()
+    connection_sage = connections[connSage100cName].cursor()
 
     sql = """
-        SELECT TR.id, TR.num, TR.dts,
-            TR.ss_01, TR.ty_01, TR.ss_02, TR.ty_02,
-            TR.ss_03, TR.ty_03, TR.ss_04, TR.ty_04,
-            TR.ss_05, TR.ty_05, TR.ss_06, TR.ty_06,
-            TR.ss_07, TR.ty_07, TR.ss_08, TR.ty_08,
-            TR.nt
-        FROM rponto.dbo.time_registration TR
-        WHERE 1=1
+        SELECT num, dts, ss_01, ss_02, ss_03, ss_04, ss_05, ss_06, ss_07, ss_08
+        FROM rponto.dbo.time_registration
+        WHERE dts >= %s AND dts < %s
     """
-    params = []
+    params = [d_start_str, d_next_day]
+    
+    if fnum_filter:
+        sql += " AND num = %s"
+        params.append(fnum_filter)
 
-    if filters.get('fnum'):
-        sql += " AND UPPER(TR.num) = %s"
-        params.append(filters['fnum'].upper())
-
-    fdate_from = filters.get('fdateFrom')
-    fdate_to = filters.get('fdateTo')
-    if fdate_from and fdate_to:
-        sql += " AND TR.dts BETWEEN %s AND %s"
-        params.extend([fdate_from, fdate_to])
-
-    sql += " ORDER BY TR.dts DESC, TR.num ASC"
     connection_rponto.execute(sql, params)
-
     columns = [col[0] for col in connection_rponto.description]
-    registos = [dict(zip(columns, row)) for row in connection_rponto.fetchall()]
+    registos_db = [dict(zip(columns, row)) for row in connection_rponto.fetchall()]
 
-    # --- Lógica de Nomes (Sage) ---
-    nums_list = list(set([r['num'] for r in registos if r.get('num')]))
+    try:
+        dados_picagens = processar_picagens_v4(registos_db)
+    except Exception as e:
+        return HttpResponse(f"Erro no processamento: {str(e)}", status=500)
+
     funcionarios_dict = {}
-    if nums_list:
-        placeholders = ','.join(['%s'] * len(nums_list))
-        sql_func1 = f"SELECT NFUNC, NOME FROM TRIMTEK_1GEP.dbo.FUNC1 WHERE NFUNC IN ({placeholders})"
-        connection_sage.execute(sql_func1, nums_list)
-        for row in connection_sage.fetchall():
-            funcionarios_dict[row[0]] = row[1]
+    if fnum_filter:
+        connection_sage.execute("SELECT NFUNC, NOME FROM TRIMTEK_1GEP.dbo.FUNC1 WHERE NFUNC = %s", [fnum_filter])
+        row = connection_sage.fetchone()
+        if row: funcionarios_dict[row[0].strip()] = row[1].strip()
+    else:
+        nums = list(set([r['num'] for r in registos_db]))
+        if nums:
+            placeholders = ','.join(['%s'] * len(nums))
+            connection_sage.execute(f"SELECT NFUNC, NOME FROM TRIMTEK_1GEP.dbo.FUNC1 WHERE NFUNC IN ({placeholders})", nums)
+            for row in connection_sage.fetchall():
+                funcionarios_dict[row[0].strip()] = row[1].strip()
 
-    for r in registos:
-        r['nome_colaborador'] = funcionarios_dict.get(r['num'], 'Nome não disponível')
+    dados_picagens = processar_picagens_v4(registos_db)
 
-    # 5. Agrupar Turnos
-    registos_agrupados = processar_picagens_v4(registos)
-
-    # 6. Criar Excel
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Picagens"
+    ws.title = "Folha de Horas"
 
-    # Estilos
-    header_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
-    header_font = Font(bold=True)
-    center_alignment = Alignment(horizontal='center')
+    headers = ['Número', 'Nome', 'Data', 'Dia da Semana', 'Picagens', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'Duração']
+    dias_pt = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"]
 
-    header_keys = []
-    header_titles = []
-    for key, config in cols_from_payload.items():
-        header_keys.append(key)
-        header_titles.append(config.get('title', key) if isinstance(config, dict) else config)
+    for i, text in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=i, value=text)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
+        cell.alignment = Alignment(horizontal='center')
 
-    # Escrever Cabeçalho
-    ws.append(header_titles)
-    for cell in ws[1]:
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = center_alignment
+    row_idx = 2
+    start_dt = datetime.strptime(d_start_str, '%Y-%m-%d').date()
+    end_dt = datetime.strptime(d_end_str, '%Y-%m-%d').date()
 
-    # Escrever Dados
-    for row in registos_agrupados:
-        line = [str(row.get(k, '')) if row.get(k) is not None else '' for k in header_keys]
-        ws.append(line)
+    users_to_process = funcionarios_dict.items() if funcionarios_dict else [(fnum_filter, "---")]
 
-    # 7. Auto-Dimensionar Colunas
+    for u_id, u_nome in users_to_process:
+        curr_dt = start_dt
+        while curr_dt <= end_dt:
+            dt_str = curr_dt.strftime('%Y-%m-%d')
+            info = dados_picagens.get(f"{dt_str}_{u_id}", {})
+            ws.cell(row=row_idx, column=1, value=u_id)
+            ws.cell(row=row_idx, column=2, value=u_nome)
+            ws.cell(row=row_idx, column=3, value=dt_str)
+            ws.cell(row=row_idx, column=4, value=dias_pt[curr_dt.weekday()])
+            ws.cell(row=row_idx, column=5, value=info.get('nt', 0)).alignment = Alignment(horizontal='center')
+
+            pics_list = info.get('pics_horas', [])
+            for i, hora_str in enumerate(pics_list):
+                c = ws.cell(row=row_idx, column=6 + i, value=datetime.strptime(hora_str, "%H:%M:%S").time())
+                c.number_format = 'HH:mm'
+                c.alignment = Alignment(horizontal='center')
+
+            r = row_idx
+            formula = (
+                f'=IF(I{r}<>"", (MOD(I{r}-F{r}, 1) - MOD(H{r}-G{r}, 1)), '
+                f'IF(G{r}<>"", MOD(MAX(F{r}:M{r})-F{r}, 1), 0))'
+            )
+            
+            dur_cell = ws.cell(row=r, column=14, value=formula)
+            dur_cell.number_format = '[h]:mm'
+
+            if curr_dt.weekday() >= 5:
+                for c in range(1, 15):
+                    ws.cell(row=row_idx, column=c).fill = PatternFill(start_color="F9F9F9", end_color="F9F9F9", fill_type="solid")
+
+            curr_dt += timedelta(days=1)
+            row_idx += 1
+
     for col in ws.columns:
-        max_length = 0
-        column_letter = col[0].column_letter
-        for cell in col:
-            try:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
-            except: pass
-        ws.column_dimensions[column_letter].width = max_length + 4
+        ws.column_dimensions[col[0].column_letter].width = 16
 
-    # 8. Enviar Resposta
     output = BytesIO()
     wb.save(output)
     output.seek(0)
-
-    response = HttpResponse(
-        output.getvalue(),
-        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
-    response['Content-Disposition'] = 'attachment; filename=registos_picagens.xlsx'
     
-    wb.close()
-    output.close()
+    response = HttpResponse(output.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename=Relatorio_{d_start_str}.xlsx'
+    
+    connection_rponto.close()
+    connection_sage.close()
     return response
 
 
-def processar_picagens_v4(registos):
-    GAP_NOVO_TURNO = 3.5  
-    MAX_HORAS_EXTRA = 15.0 
 
+
+def processar_picagens_v4(registos):
     users_data = {}
     for r in registos:
-        u = r.get('num')
+        u = str(r.get('num', '')).strip()
         if not u: continue
         if u not in users_data:
-            users_data[u] = {'info': r, 'pics': []}
+            users_data[u] = {'pics': []}
         
-        for i in range(1, 9):
-            val = r.get(f'ss_{i:02d}')
+        campos_picagem = [f'ss_{i:02d}' for i in range(1, 9)]
+        for campo in campos_picagem:
+            val = r.get(campo)
             if val:
                 if isinstance(val, str):
-                    try: dt = datetime.strptime(val[:19], '%Y-%m-%d %H:%M:%S')
+                    try: dt_obj = datetime.strptime(val[:19], '%Y-%m-%d %H:%M:%S')
                     except: continue
-                else: dt = val
-                users_data[u]['pics'].append({'dt': dt, 'tipo': r.get(f'ty_{i:02d}', '')})
+                elif isinstance(val, datetime): dt_obj = val
+                else: continue
 
-    resultado_final = []
+                if dt_obj.hour == 0 and dt_obj.minute == 0 and dt_obj.second == 0:
+                    continue
+                users_data[u]['pics'].append(dt_obj)
 
+    resultado_dict = {}
     for u, data in users_data.items():
-        todas_pics = sorted(data['pics'], key=lambda x: x['dt'])
-        if not todas_pics: continue
+        pics = sorted(list(set(data['pics'])))
+        if not pics: continue
+        turnos_agrupados = []
+        if pics:
+            bloco = [pics[0]]
+            for i in range(1, len(pics)):
+                intervalo = (pics[i] - bloco[-1]).total_seconds() / 3600
+                if intervalo < 14:
+                    bloco.append(pics[i])
+                else:
+                    turnos_agrupados.append(bloco)
+                    bloco = [pics[i]]
+            turnos_agrupados.append(bloco)
 
-        turnos = []
-        bloco_atual = []
-
-        for p in todas_pics:
-            if not bloco_atual:
-                bloco_atual.append(p)
-                continue
+        for t in turnos_agrupados:
+            inicio_turno = t[0]
+            dt_str = inicio_turno.date().strftime('%Y-%m-%d')
+            chave = f"{dt_str}_{u}"
+            resultado_dict[chave] = {
+                'nt': len(t),
+                'pics_horas': [p.strftime('%H:%M:%S') for p in t[:8]]
+            }
             
-            inicio_bloco = bloco_atual[0]['dt']
-            ultima_pic = bloco_atual[-1]['dt']
-            horas_desde_inicio = (p['dt'] - inicio_bloco).total_seconds() / 3600
-            horas_desde_ultima = (p['dt'] - ultima_pic).total_seconds() / 3600
-
-            if horas_desde_inicio > MAX_HORAS_EXTRA or (len(bloco_atual) % 2 == 0 and horas_desde_ultima > GAP_NOVO_TURNO):
-                turnos.append(bloco_atual)
-                bloco_atual = [p]
-            else:
-                bloco_atual.append(p)
-
-        if bloco_atual:
-            turnos.append(bloco_atual)
-
-        for t in turnos:
-            row = data['info'].copy()
-            for i in range(1, 9):
-                row[f'ss_{i:02d}'] = None
-
-            ent = t[0]['dt']
-            sai = t[-1]['dt'] if len(t) > 1 else None
-            
-            # AJUSTE: Se sai no dia seguinte, assume a data da saída
-            if sai and sai.date() > ent.date():
-                data_referencia = sai.date()
-            else:
-                data_referencia = ent.date()
-            
-            row['data_turno'] = data_referencia.strftime('%Y-%m-%d')
-            row['hora_entrada'] = ent.strftime('%H:%M:%S')
-            row['hora_saida'] = sai.strftime('%H:%M:%S') if sai else ""
-            
-            if sai:
-                dur = (sai - ent).total_seconds() / 3600
-                row['duracao_turno'] = f"{dur:.2f}h"
-            else:
-                row['duracao_turno'] = ""
-
-            for i, p in enumerate(t[:8]):
-                row[f'ss_{i+1:02d}'] = p['dt'].strftime('%Y-%m-%d %H:%M:%S')
-            
-            row['nt'] = len(t)
-            resultado_final.append(row)
-
-    return sorted(resultado_final, key=lambda x: (x['data_turno'], x['num']), reverse=True)
+    return resultado_dict
 
 
 

@@ -602,11 +602,6 @@ const SettingsMenu = ({ isOpen, onClose, filters, setFilters, onApplyFilters, on
   );
 };
 
-// ============================================================================
-// AUXILIARY COMPONENTS
-// ============================================================================
-
-// Visual Records Viewer Component
 const RegistosVisuaisViewer = ({ data, onClose }) => {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -616,22 +611,43 @@ const RegistosVisuaisViewer = ({ data, onClose }) => {
   }, []);
 
   const loadData = async () => {
+    setLoading(true);
     try {
+      const defaultParameters = { method: "RegistosRH" };
+      
+      // Converte as datas de dayjs para string YYYY-MM-DD
+      const filterValues = {
+        fnum: filters.fnum || '',
+        fnome: filters.fnome || '',
+        // IMPORTANTE: Converte as datas para string e usa a chave correta 'fdata'
+        fdata: [
+          filters.fdateFrom ? dayjs(filters.fdateFrom).format('YYYY-MM-DD') : null,
+          filters.fdateTo ? dayjs(filters.fdateTo).format('YYYY-MM-DD') : null
+        ].filter(d => d !== null),
+        ...(num && { num })
+      };
+      
       let response = await fetchPost({
         url: `${API_URL}/rponto/sqlp/`,
         withCredentials: true,
-        filter: {},
-        parameters: {
-          method: "GetCameraRecords",
-          date: dayjs(data.dts).format(DATE_FORMAT_NO_SEPARATOR),
-          num: data.num
-        }
+        parameters: defaultParameters,
+        pagination: { enabled: true, page: currentPage, pageSize },
+        filter: filterValues, // ✅ Agora as datas estão em formato correto
+        sort: [
+          { column: "dts", direction: "DESC" },
+          { column: "num", direction: "ASC" }
+        ]
       });
+      
       if (response.data.status !== "error") {
-        setRecords(response.data);
+        setData(response.data.rows || []);
+        setTotalPages(Math.ceil((response.data.total || 0) / pageSize));
+      } else {
+        openNotification?.("error", 'top', "Erro", response.data.title);
       }
     } catch (e) {
       console.error(e);
+      openNotification?.("error", 'top', "Erro", e.message);
     } finally {
       setLoading(false);
     }

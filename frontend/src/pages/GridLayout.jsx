@@ -1,14 +1,18 @@
 import React, { useEffect, useState, useContext } from 'react';
 import { Route, Routes, useRoutes, BrowserRouter, Navigate, Outlet, useLocation } from 'react-router-dom';
-import { Breadcrumb, Layout, Menu, theme, Drawer, notification } from 'antd';
+import { Breadcrumb, Layout, Menu, theme, Drawer, notification, Typography } from 'antd';
 import Logo from 'assets/logowhite.svg';
 import { useNavigate } from 'react-router-dom';
 import styled, { css } from 'styled-components';
 import MainMenu from './MainMenu';
 import { AppContext } from './App';
+import { Type } from 'lucide-react';
 const { Header, Content, Footer } = Layout;
 
 export const LayoutContext = React.createContext({});
+
+const { Text } = Typography;
+
 
 const StyledDrawer = styled(Drawer)`
     .ant-drawer-wrapper-body{
@@ -27,39 +31,6 @@ export default () => {
 	const colorBgContainer = "#fff";
 	const [isDrawerVisible, setIsDrawerVisible] = useState(false);
 	const navigate = useNavigate();
-	//   const {
-	//     token: { colorBgContainer },
-	//   } = theme.useToken();
-
-
-// 	useEffect(() => {
-// 		if (localStorage.getItem('access_token') === null) {
-// 			navigate('/app/login');
-// 			//window.location.href = '/app/login';
-// 		}
-// 		else {
-// /* 			(async () => {
-// 				try {
-// 					const { data } = await axios.get(
-// 						'http://localhost:8000/home/', {
-// 						headers: {
-// 							'Content-Type': 'application/json'
-// 						}
-// 					}
-// 					);
-// 					setMessage(data.message);
-// 				} catch (e) {
-// 					console.log('not auth')
-// 				}
-// 			})() */
-// 		};
-// 	}, []);
-
-	/* useEffect(()=>{
-		if (localStorage.getItem("auth") === null) {
-			//window.location.href = '/app/login';
-		}
-	},[]); */
 
 
 	const onToggleDrawer = () => {
@@ -116,16 +87,8 @@ export default () => {
 				</Header>
 				<Content style={{ padding: '0 5px', height: "calc(100vh - 32px)" }}>
 					<Outlet />
-					{/* <Breadcrumb style={{ margin: '16px 0' }}>
-					<Breadcrumb.Item>Home</Breadcrumb.Item>
-					<Breadcrumb.Item>List</Breadcrumb.Item>
-					<Breadcrumb.Item>App</Breadcrumb.Item>
-				</Breadcrumb> */}
-					{/* <div className="site-layout-content" style={{ background: colorBgContainer }}>
-					Content
-				</div> */}
+
 				</Content>
-				{/* <Footer style={{ textAlign: 'center' }}>Ant Design ©2023 Created by Ant UED</Footer> */}
 			</Layout>
 		</LayoutContext.Provider>
 	);
