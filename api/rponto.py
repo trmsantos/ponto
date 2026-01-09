@@ -16,7 +16,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from rest_framework import status
 import mimetypes
 import pytz
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 # import cups
 import os, tempfile
 import pickle
@@ -862,6 +862,8 @@ def UpdateRecords(request, format=None):
     except Error as error:
         return Response({"status": "error", "title": str(error)})
 
+
+
 def RegistosRH(request, format=None):
     print("RegistosRH")
     
@@ -869,22 +871,19 @@ def RegistosRH(request, format=None):
     connection_sage = connections[connSage100cName].cursor()
     
     try:
-        print("=" * 80)
-        print("REQUEST DATA:")
-        print(f"Filter: {request.data.get('filter')}")
-        print(f"Parameters: {request.data.get('parameters')}")
-        print(f"Pagination: {request.data.get('pagination')}")
-        print("=" * 80)
-
-        f = Filters(request.data['filter'])
+        f = Filters(request.data.get('filter', {}))
         f.setParameters({
-            **rangeP(f.filterData.get('fdata'), 'dts', lambda k, v: f'CONVERT(DATE, dts)'),
             "fnum": {
                 "value": lambda v: v.get('fnum').upper() if v.get('fnum') else None,
-                "field": lambda k, v: f'TR.num'
-            },
+                "field": lambda k, v: f"TR.num"
+            }
         }, True)
-        f.where()
+
+        fnum_value = request.data.get('filter', {}).get('fnum')
+        if fnum_value and '%' in str(fnum_value):
+            f.where_text = f"WHERE TR.num LIKE '{fnum_value}'"
+        else:
+            f.where()
         f.auto()
         f.value()
         
@@ -895,33 +894,34 @@ def RegistosRH(request, format=None):
         dql = dbmssql.dql(request.data, False)
         
         cols = """
-            TR.id,
-            TR.num,
-            TR.dts,
-            TR.ss_01, TR.ty_01,
-            TR.ss_02, TR.ty_02,
-            TR.ss_03, TR.ty_03,
-            TR.ss_04, TR.ty_04,
-            TR.ss_05, TR.ty_05,
-            TR.ss_06, TR.ty_06,
-            TR.ss_07, TR.ty_07,
-            TR.ss_08, TR.ty_08,
+            TR.id, TR.num, TR.dts,
+            TR.ss_01, TR.ty_01, TR.ss_02, TR.ty_02,
+            TR.ss_03, TR.ty_03, TR.ss_04, TR.ty_04,
+            TR.ss_05, TR.ty_05, TR.ss_06, TR.ty_06,
+            TR.ss_07, TR.ty_07, TR.ss_08, TR.ty_08,
             TR.nt
         """
         
         dql.columns = encloseColumn(cols, False)
         
-        sql_rponto = lambda p, c, s: f"""
-            SELECT {c(f'{dql.columns}')}
-            FROM rponto.dbo.time_registration TR
-            {f.text} {fmulti["text"]}
-            {s(dql.sort) if dql.sort else 'ORDER BY TR.dts DESC, TR.num ASC'}
-            {p(dql.paging)} {p(dql.limit)}
-        """
+        # Função de paginação segura para SQL Server
+        def sql_rponto(paging_func, columns_func, sort_func):
+            offset = dql.currentPage * dql.pageSize
+            limit = dql.pageSize
+            order_clause = sort_func(dql.sort) if dql.sort else "ORDER BY TR.dts DESC, TR.num ASC"
+            paging_clause = f"OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+            
+            sql_query = f"""
+                SELECT {columns_func(dql.columns)}
+                FROM rponto.dbo.time_registration TR
+                {f.text} {fmulti['text']}
+                {order_clause}
+                {paging_clause}
+            """
+            print("DEBUG SQL:", sql_query)  # Para verificar o SQL gerado
+            return sql_query
         
-        print(f"Query rponto: {sql_rponto(lambda v:v, lambda v:v, lambda v:v)}")
-        print(f"Parameters: {parameters}")
-        
+        # Executa a query obtendo as linhas da página e o total global
         response_rponto = dbmssql.executeList(
             sql_rponto, 
             connection_rponto, 
@@ -933,145 +933,76 @@ def RegistosRH(request, format=None):
         
         if not response_rponto.get('rows'):
             return Response({
-                "rows": [],
-                "total": 0,
-                "page": dql.currentPage,
-                "pageSize": dql.pageSize,
-                "status": "success"
+                "rows": [], "total": 0, "page": dql.currentPage,
+                "pageSize": dql.pageSize, "status": "success"
             })
         
         registos = response_rponto['rows']
+        total_records = response_rponto.get('total', 0)
         
+        # 2. Obter Nomes do SAGE (apenas para os números presentes nesta página)
+        nums_list = list(set([r['num'] for r in registos if r.get('num')]))
+        funcionarios_dict = {}
+        if nums_list:
+            placeholders = ','.join(['%s' for _ in nums_list])
+            sql_func1 = f"SELECT NFUNC, NOME FROM TRIMTEK_1GEP.dbo.FUNC1 WHERE NFUNC IN ({placeholders})"
+            connection_sage.execute(sql_func1, tuple(nums_list))
+            columns_func1 = [col[0] for col in connection_sage.description]
+            for row in connection_sage.fetchall():
+                func_data = dict(zip(columns_func1, row))
+                funcionarios_dict[func_data['NFUNC']] = func_data
+
+        # 3. Normalização e Processamento de Turnos
         registos_normalizados = []
-        
         for registro in registos:
-            picagens_dia = {
-                'num': registro['num'],
-                'dts_original': registro['dts'],
-                'id': registro['id'],
-                'nt': registro['nt'],
-                'picagens': []
-            }
+            primeira_picagem_dt = None
             
             for i in range(1, 9):
                 ss_key = f'ss_{i:02d}'
-                ty_key = f'ty_{i:02d}'
+                val = registro.get(ss_key)
+                if val:
+                    dt_obj = val
+                    if isinstance(val, str):
+                        try: dt_obj = datetime.strptime(val, '%Y-%m-%d %H:%M:%S')
+                        except: pass
+                    
+                    if not primeira_picagem_dt:
+                        primeira_picagem_dt = dt_obj
+                    
+                    if isinstance(dt_obj, (datetime, date)):
+                        registro[ss_key] = dt_obj.strftime('%Y-%m-%d %H:%M:%S')
 
-                if registro.get(ss_key):
-                    valor_picagem = registro[ss_key]
-                    if isinstance(valor_picagem, str):
-                        dt_picagem = datetime.strptime(valor_picagem, '%Y-%m-%d %H:%M:%S')
-                    else:
-                        dt_picagem = valor_picagem
-
-                    tipo = registro.get(ty_key, '').strip()
-
-                    picagens_dia['picagens'].append({
-                        'ordem': i,
-                        'timestamp': dt_picagem,
-                        'tipo': tipo,
-                        'ss_key': ss_key,
-                        'ty_key': ty_key
-                    })
-
-            if picagens_dia['picagens']:
-                primeira_picagem = picagens_dia['picagens'][0]['timestamp']
-                hora_primeira = primeira_picagem.hour
-                
-                if hora_primeira >= 22:
-                    data_turno = primeira_picagem.date()
-                elif hora_primeira < 6:
-                    data_turno = (primeira_picagem - timedelta(days=1)).date()
+            if primeira_picagem_dt:
+                hora = primeira_picagem_dt.hour
+                if hora < 6:
+                    data_turno = (primeira_picagem_dt - timedelta(days=1)).date()
                 else:
-                    data_turno = primeira_picagem.date()
-                
-                tipo_turno = identificar_tipo_turno(hora_primeira)
+                    data_turno = primeira_picagem_dt.date()
                 
                 registro['data_turno'] = data_turno.strftime('%Y-%m-%d')
-                registro['tipo_turno'] = tipo_turno
-                registro['hora_entrada'] = picagens_dia['picagens'][0]['timestamp'].strftime('%H:%M')
-                registro['hora_saida'] = picagens_dia['picagens'][-1]['timestamp'].strftime('%H:%M') if len(picagens_dia['picagens']) > 1 else ''
-                
-                if len(picagens_dia['picagens']) > 1:
-                    entrada = picagens_dia['picagens'][0]['timestamp']
-                    saida = picagens_dia['picagens'][-1]['timestamp']
-                    
-                    if saida < entrada:
-                        saida = saida + timedelta(days=1)
-                    
-                    duracao = (saida - entrada).total_seconds() / 3600
-                    registro['duracao_turno'] = f"{duracao:.2f}h"
-                else:
-                    registro['duracao_turno'] = ''
+                registro['tipo_turno'] = identificar_tipo_turno(hora)
+            else:
+                dts = registro.get('dts')
+                registro['data_turno'] = dts.strftime('%Y-%m-%d') if isinstance(dts, (datetime, date)) else str(dts)
+                registro['tipo_turno'] = 'N/A'
+
+            num = registro.get('num')
+            registro['nome_colaborador'] = funcionarios_dict.get(num, {}).get('NOME', 'Nome não disponível')
             
+            if isinstance(registro.get('dts'), (datetime, date)):
+                registro['dts'] = registro['dts'].strftime('%Y-%m-%d %H:%M:%S')
+
             registos_normalizados.append(registro)
-        
-        nums_list = list(set([r['num'] for r in registos_normalizados if r.get('num')]))
-        
-        if nums_list:
-            placeholders = ','.join(['%s' for _ in nums_list])
-            sql_func1 = f"""
-                SELECT NFUNC, NOME
-                FROM TRIMTEK_1GEP.dbo.FUNC1
-                WHERE NFUNC IN ({placeholders})
-            """
-            
-            connection_sage.execute(sql_func1, tuple(nums_list))
-            columns_func1 = [col[0] for col in connection_sage.description]
-            funcionarios_list = connection_sage.fetchall()
-            
-            funcionarios_dict = {}
-            for row in funcionarios_list:
-                func_data = dict(zip(columns_func1, row))
-                funcionarios_dict[func_data['NFUNC']] = func_data
-            
-            for registro in registos_normalizados:
-                num = registro.get('num')
-                funcionario = funcionarios_dict.get(num, {})
-                registro['nome_colaborador'] = funcionario.get('NOME', 'Nome não disponível')
-        
+
+        # 4. Filtro manual por nome
         fnome = request.data.get('filter', {}).get('fnome', '').lower()
         if fnome:
-            registos_normalizados = [
-                r for r in registos_normalizados 
-                if fnome in r.get('nome_colaborador', '').lower()
-            ]
-        
-        registos_normalizados.sort(
-            key=lambda x: (x.get('data_turno', x.get('dts')), x.get('num')), 
-            reverse=True
-        )
-        
-        if ("export" in request.data["parameters"]):
-            dql.limit = f"""OFFSET 0 ROWS FETCH NEXT {request.data["parameters"]["limit"]} ROWS ONLY"""
-            dql.paging = ""
-            
-            new_cols = {}
-            for key, value in request.data["parameters"].get("cols", {}).items():
-                new_cols[key] = value
-            
-            if 'num' in new_cols:
-                new_cols['nome_colaborador'] = {'title': 'Nome', 'width': 200}
-                new_cols['data_turno'] = {'title': 'Data Turno', 'width': 100}
-                new_cols['tipo_turno'] = {'title': 'Tipo Turno', 'width': 100}
-                new_cols['hora_entrada'] = {'title': 'Entrada', 'width': 80}
-                new_cols['hora_saida'] = {'title': 'Saída', 'width': 80}
-                new_cols['duracao_turno'] = {'title': 'Duração', 'width': 80}
-            
-            request.data["parameters"]["cols"] = new_cols
-            
-            return export(
-                sql_rponto(lambda v:v, lambda v:v, lambda v:v), 
-                db_parameters=parameters, 
-                parameters=request.data["parameters"],
-                conn_name=AppSettings.reportConn["sage"],
-                dbi=dbmssql,
-                conn=connection_rponto
-            )
-        
+            registos_normalizados = [r for r in registos_normalizados if fnome in r.get('nome_colaborador', '').lower()]
+            total_records = len(registos_normalizados)
+
         return Response({
             "rows": registos_normalizados,
-            "total": len(registos_normalizados),
+            "total": total_records,
             "page": dql.currentPage,
             "pageSize": dql.pageSize,
             "status": "success"
@@ -1088,6 +1019,7 @@ def RegistosRH(request, format=None):
         connection_sage.close()
 
 
+
 def identificar_tipo_turno(hora_entrada):
     """
     Identifica o tipo de turno baseado na hora de entrada
@@ -1100,7 +1032,58 @@ def identificar_tipo_turno(hora_entrada):
         return "NOITE (22:00-06:00)"
 
 
+def EscreverTemplateExcel(request, format=None):
+    data = reqquest.data.get("filter")
+    data_inicio = data.get("data_inicio")
+    data_fim = data.get("data_fim")
+    resultado_dict = self.group_picagens(data_inicio, data_fim) 
+    template_path = os.path.join(os.path.dirname(__file__), 'templates', 'Manutenção e SI.xlsm')
 
+    wb = openpyxl.load_workbook(template_path, keep_vba=True)
+
+    COL_ID_FUNC = 1   
+    COL_DATA = 4      
+    COL_START_P = 7  
+
+    for chave, info in resultado_dict.items():
+        dt_str, id_func = chave.split('_')
+        data_alvo = datetime.strptime(dt_str, '%Y-%m-%d').date()
+        sheet_name = str(id_func)
+        
+        if sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            linha_alvo = None
+            for row in range(1, 150):
+                val_data = ws.cell(row=row, column=COL_DATA).value
+                val_id = ws.cell(row=row, column=COL_ID_FUNC).value
+                
+                if isinstance(val_data, datetime):
+                    val_data = val_data.date()
+                
+                if val_data == data_alvo:
+                    linha_alvo = row
+                    break
+            
+            if linha_alvo:
+                pics = info.get('pics_horas', [])
+                for i, hora in enumerate(pics):
+                    if i < 8:
+                        ws.cell(row=linha_alvo, column=COL_START_P + i).value = hora
+        else:
+            print(f"Folha para o funcionário {id_func} não encontrada.")
+
+    out = BytesIO()
+    wb.save(out)
+    out.seek(0)
+
+    response = HttpResponse(
+        out.read(),
+        content_type='application/vnd.ms-excel.sheet.macroEnabled.12'
+    )
+    response['Content-Disposition'] = f'attachment; filename="Relatorio_Picagens_{data_inicio}.xlsm"'
+    return response
+
+    
 
 def GetTurnosEquipas(request, format=None):
     parameters = request.data. get('parameters', {})

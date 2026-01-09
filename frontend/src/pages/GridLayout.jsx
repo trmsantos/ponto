@@ -5,7 +5,6 @@ import Logo from 'assets/logowhite.svg';
 import { AppContext } from './App';
 import MainMenu from './MainMenu';
 import { Menu as MenuIcon, X, Bell } from 'lucide-react';
-// A LINHA ABAIXO FOI ADICIONADA PARA CORRIGIR O ERRO
 import { isRH } from './commons'; 
 
 export const LayoutContext = React.createContext({});
@@ -21,7 +20,7 @@ export default () => {
             message: message || `Notificação`,
             description: description,
             placement,
-            className: 'font-sans' // Garante fonte correta no antd
+            className: 'font-sans' 
         };
         if (status === "error") api.error(config);
         else if (status === "success") api.success(config);
@@ -34,10 +33,8 @@ export default () => {
             
             <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
                 
-                {/* --- SIDEBAR (DESKTOP) --- */}
                 <aside className="hidden md:flex flex-col w-72 bg-slate-900 text-white shadow-2xl z-30 shrink-0">
                     <div className="h-16 flex items-center px-6 border-b border-slate-800 bg-slate-900">
-                        {/* Ajusta o tamanho do logo aqui se necessário */}
                         <div className="w-32 h-8 flex items-center">
                              <Logo className="w-full h-full text-white" />
                         </div>
@@ -47,8 +44,6 @@ export default () => {
                     </div>
                 </aside>
 
-                {/* --- MOBILE DRAWER --- */}
-                {/* Backdrop */}
                 <div 
                     className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity duration-300 md:hidden ${isSidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                     onClick={() => setIsSidebarOpen(false)}
@@ -69,7 +64,6 @@ export default () => {
                     </div>
                 </div>
 
-                {/* --- ÁREA PRINCIPAL --- */}
                 <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50 relative">
                     
                     {/* Header */}
@@ -92,8 +86,7 @@ export default () => {
                             <div className="flex items-center gap-3 pl-4 border-l border-slate-100">
                                 <div className="text-right hidden sm:block leading-tight">
                                     <p className="text-sm font-semibold text-slate-900">{auth?.first_name} {auth?.last_name}</p>
-                                    <p className="text-xs text-slate-500">
-                                        {/* Agora o isRH já está definido */}
+                                    <p className="text-xs text-slate-500">          
                                         {isRH(auth) ? 'Recursos Humanos' : 'Colaborador'}
                                     </p>
                                 </div>
@@ -104,7 +97,7 @@ export default () => {
                         </div>
                     </header>
 
-                    {/* Conteúdo das Rotas - EXPANDIDO */}
+
                     <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 scroll-smooth">
                         <div className="w-full max-w-[1920px] mx-auto min-h-full">
                             <Outlet />

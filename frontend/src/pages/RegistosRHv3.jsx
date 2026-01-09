@@ -1,278 +1,550 @@
 import React, { useEffect, useState, useCallback, useContext } from 'react';
 import dayjs from 'dayjs';
-import 'dayjs/locale/pt';
-import { fetchPost } from "utils/fetch";
-import { API_URL, FILES_URL, DATE_FORMAT, DATETIME_FORMAT } from "config";
+import { fetch, fetchPost } from "utils/fetch";
+import { useSubmitting } from "utils";
+import { API_URL, ROOT_URL, FILES_URL, DATE_FORMAT, DATETIME_FORMAT } from "config";
+import { useDataAPI } from "utils/useDataAPI";
+import { getFilterRangeValues, getFilterValue } from "utils";
 import { 
-  SearchIcon, RefreshIcon, XIcon, 
-  CameraIcon, EditIcon, AlertCircleIcon 
-} from "components/Icons"; 
+  Button, Form, Input, Modal, Drawer, Image, 
+  DatePicker, Space, Typography, Tag 
+} from "antd";
+import { 
+  CameraOutlined, DeleteTwoTone, CaretDownOutlined, 
+  CaretUpOutlined, SearchOutlined, SyncOutlined, EditOutlined,
+  FilterOutlined, ClearOutlined
+} from '@ant-design/icons';
+import { BsFillEraserFill } from 'react-icons/bs';
+import { useModal } from "react-modal-hook";
+import ResponsiveModal from 'components/Modal';
+import YScroll from 'components/YScroll';
+import { AppContext } from "./App";
+import { isRH } from './commons';
 import { LayoutContext } from "./GridLayout";
+import { Spinner, RefreshIcon, DownloadIcon, AlertIcon, CameraIcon } from "components/Icons";
+import { SelectField, Field, RangeDateField, FormContainer, AlertsContainer } from 'components/FormFields';
 import DownloadReport from 'components/DownloadReportsV2';
 
-dayjs.locale('pt');
 
-// Componentes UI Auxiliares
-const Spinner = () => <div className="inline-block w-5 h-5 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" />;
-
-const Input = ({ value, onChange, placeholder, type = 'text', icon }) => (
-  <div className="relative w-full">
-    {icon && <div className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">{icon}</div>}
-    <input 
-      type={type} 
-      value={value} 
-      onChange={onChange} 
-      placeholder={placeholder} 
-      className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none ${icon ? 'pl-10' : ''}`} 
-    />
+const Pic = ({ path }) => (
+  <div className="flex justify-center p-4">
+    <Image src={path} className="rounded-lg shadow-lg" style={{ maxHeight: '70vh' }} />
   </div>
 );
 
-const Button = ({ children, onClick, variant = 'default', loading = false, icon, className = '' }) => {
-  const variants = {
-    default: "bg-white border-gray-300 text-gray-700 hover:bg-gray-50",
-    primary: "bg-blue-600 border-transparent text-white hover:bg-blue-700",
-    danger: "bg-red-50 border-transparent text-red-600 hover:bg-red-100",
-    ghost: "bg-transparent border-transparent text-gray-500 hover:bg-gray-100"
+
+const Fix = ({ parameters, loadParentData, openNotification }) => {
+  const [form] = Form.useForm();
+  const [fieldStatus, setFieldStatus] = useState({});
+  const [formStatus, setFormStatus] = useState({ error: [], warning: [], info: [], success: [] });
+  const submitting = useSubmitting(false);
+
+  const typeList = [{ value: null, label: "" }, { value: "in", label: "Entrada" }, { value: "out", label: "Saída" }];
+
+  useEffect(() => {
+    if (!parameters.row) return;
+    const vals = {
+      ...parameters.row,
+      dts: parameters.row.dts ? dayjs(parameters.row.dts).format(DATE_FORMAT) : null,
+      ...Object.fromEntries(
+        [1,2,3,4,5,6,7,8].map(i => [
+          `ss_${String(i).padStart(2, '0')}`, 
+          parameters.row[`ss_${String(i).padStart(2, '0')}`] ? dayjs(parameters.row[`ss_${String(i).padStart(2, '0')}`]) : null
+        ])
+      ),
+      ...Object.fromEntries(
+        [1,2,3,4,5,6,7,8].map(i => [
+          `ty_${String(i).padStart(2, '0')}`, 
+          parameters.row[`ty_${String(i).padStart(2, '0')}`] ? parameters.row[`ty_${String(i).padStart(2, '0')}`].trim() : null
+        ])
+      )
+    };
+    form.setFieldsValue(vals);
+  }, [parameters.row]);
+
+  const onFinish = async () => {
+    submitting.trigger();
+    let values = form.getFieldsValue(true);
+    try {
+      const vals = { ...values };
+      [1,2,3,4,5,6,7,8].forEach(i => {
+        const k = `ss_${String(i).padStart(2, '0')}`;
+        if (vals[k]) vals[k] = dayjs(vals[k]).format(DATETIME_FORMAT);
+      });
+
+      let response = await fetchPost({ url: `${API_URL}/rponto/sqlp/`, withCredentials: true, parameters: { method: "UpdateRecords", values: vals } });
+      if (response.data.status !== "error") {
+        openNotification(response.data.status, 'top', "Sucesso", response.data.title);
+        loadParentData();
+      }
+    } catch (e) {
+      openNotification("error", 'top', "Erro", e.message);
+    } finally { submitting.end(); }
   };
+
+  const erase = (n) => {
+    const field = `ss_${String(n).padStart(2, '0')}`;
+    const type = `ty_${String(n).padStart(2, '0')}`;
+    form.setFieldsValue({ [field]: null, [type]: null });
+  };
+
   return (
-    <button 
-      onClick={onClick} 
-      disabled={loading}
-      className={`flex items-center justify-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium transition-all disabled:opacity-50 ${variants[variant]} ${className}`}
-    >
-      {loading ? <Spinner /> : icon}
-      {children}
-    </button>
+    <div className="p-4 bg-white rounded-lg">
+      <AlertsContainer fieldStatus={fieldStatus} formStatus={formStatus} portal={false} />
+      <Form form={form} layout="vertical" onFinish={onFinish}>
+        <div className="grid grid-cols-3 gap-4 mb-6 bg-gray-50 p-3 rounded border">
+          <Form.Item name="num" label="Número"><Input disabled size="small"/></Form.Item>
+          <Form.Item name="nome_colaborador" label="Nome"><Input disabled size="small"/></Form.Item>
+          <Form.Item name="dts" label="Data"><Input disabled size="small"/></Form.Item>
+        </div>
+        
+        <div className="space-y-2">
+          {[1,2,3,4,5,6,7,8].map(i => (
+            <div key={i} className="flex items-center gap-2 group p-1 hover:bg-blue-50/50 rounded transition-colors">
+              <span className="text-xs font-bold text-gray-400 w-6">{String(i).padStart(2, '0')}</span>
+              <button type="button" onClick={() => erase(i)} className="p-1.5 text-gray-400 hover:text-red-500"><BsFillEraserFill /></button>
+              <Form.Item name={`ss_${String(i).padStart(2, '0')}`} className="mb-0 flex-1">
+                <DatePicker format={DATETIME_FORMAT} size="small" showTime className="w-full" />
+              </Form.Item>
+              <Form.Item name={`ty_${String(i).padStart(2, '0')}`} className="mb-0 w-32">
+                <SelectField size="small" data={typeList} keyField="value" textField="label" />
+              </Form.Item>
+            </div>
+          ))}
+        </div>
+        <div className="mt-6 flex justify-end">
+          <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded shadow hover:bg-blue-700 font-bold transition-all">
+            {submitting.state ? <SyncOutlined spin /> : 'Guardar Alterações'}
+          </button>
+        </div>
+      </Form>
+    </div>
   );
 };
 
-const Drawer = ({ isOpen, onClose, title, children }) => (
-  <>
-    <div className={`fixed inset-0 bg-black/40 z-40 transition-opacity ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={onClose} />
-    <div className={`fixed inset-y-0 right-0 w-full max-w-md bg-white z-50 shadow-xl transform transition-transform duration-300 ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-      <div className="h-16 flex items-center justify-between px-6 border-b">
-        <h3 className="text-lg font-semibold">{title}</h3>
-        <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full"><XIcon size={20} /></button>
-      </div>
-      <div className="p-6 overflow-y-auto h-[calc(100vh-64px)]">{children}</div>
-    </div>
-  </>
-);
-
-export default function RegistosRHv3() {
-  const { openNotification } = useContext(LayoutContext);
-  const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({
-    nome: '',
-    dataInicio: '', // Vazio para não filtrar por defeito
-    dataFim: ''
-  });
-
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  const [totalRecords, setTotalRecords] = useState(0);
-
-  const [showBiometrias, setShowBiometrias] = useState(false);
-  const [showInvalidRecords, setShowInvalidRecords] = useState(false);
-  const [showFix, setShowFix] = useState(false);
-  const [showVisualRecords, setShowVisualRecords] = useState(false);
-  const [selectedRecord, setSelectedRecord] = useState(null);
-
-  // Carregar dados da tabela
- const loadData = useCallback(async () => {
-  setLoading(true);
-  try {
-    const response = await fetchPost({
-      url: `${API_URL}/rh/sqlp/`,
-      parameters: {
-        filter: {
-          method: 'RegistosRH',
-          fnum: filters.nome || undefined, 
-          fdata: (filters.dataInicio && filters.dataFim) ? 
-                  [filters.dataInicio, filters.dataFim] : undefined
-        },
-        pagination: { page: currentPage, limit: pageSize },
-        sort: [{ column: 'tstamp', direction: 'desc' }]
-      }
-    });
-
-    if (response.data) {
-      setData(response.data.rows || []);
-      setTotalRecords(response.data.total || 0);
-    }
-  } catch (e) {
-    openNotification("error", "topRight", "Erro", "Erro ao carregar dados.");
-  } finally {
-    setLoading(false);
-  }
-}, [filters, currentPage, pageSize]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  const handleFilterChange = (key, value) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
-    setCurrentPage(1);
-  };
-
-  return (
-    <div className="space-y-6 animate-slideUp">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-800">Registos de Picagens V3</h2>
-          <p className="text-sm text-gray-500">Gestão centralizada de assiduidade</p>
+/* --- COMPONENTE BIOMETRIAS --- */
+const Biometrias = ({ openNotification }) => {
+    const dataAPI = useDataAPI({ payload: { url: `${API_URL}/rponto/sqlp/`, withCredentials: true, parameters: { method: "BiometriasList" }, pagination: { enabled: false }, filter: {}, sort: [] } });
+    const submitting = useSubmitting(false);
+    const [modalParameters, setModalParameters] = useState({});
+    const [showModal, hideModal] = useModal(({ in: open }) => (
+      <ResponsiveModal title={modalParameters?.title} onCancel={hideModal} width={modalParameters.width} footer="ref" yScroll><Pic path={modalParameters.path} /></ResponsiveModal>
+    ), [modalParameters]);
+    useEffect(() => { dataAPI.fetchPost(); }, []);
+    const syncAll = async () => {
+      submitting.trigger();
+      try { await fetchPost({ url: `${API_URL}/rponto/sqlp/`, withCredentials: true, parameters: { method: "Sync" } }); openNotification("success", 'top', "Sincronização", "Dados sincronizados!"); } 
+      catch (e) { openNotification("error", 'top', "Erro", e.message); } finally { submitting.end(); }
+    };
+    return (
+      <div className="flex flex-col h-full">
+        <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+          <span className="text-xs font-bold text-gray-500 uppercase tracking-tighter">{dataAPI.rows?.length || 0} Biometrias</span>
+          <button onClick={syncAll} className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 flex items-center gap-2">
+            <SyncOutlined spin={submitting.state}/> Sincronizar
+          </button>
         </div>
-        
-        <div className="flex flex-wrap gap-2">
-          {/* COMPONENTE EXPORTAR CORRIGIDO */}
-          <DownloadReport 
-            filter={{
-                method: 'RegistosRH',
-                fnum: filters.nome || undefined,
-                fdata: (filters.dataInicio && filters.dataFim) ? [filters.dataInicio, filters.dataFim] : undefined
-            }}
-            sort={[{ column: 'tstamp', direction: 'DESC' }]}
-            filename={`picagens_${dayjs().format('YYYYMMDD')}.xlsx`}
-            cols={[
-              { label: 'Data/Hora', key: 'tstamp' },
-              { label: 'Número', key: 'colaborador_num' },
-              { label: 'Nome', key: 'nome' },
-              { label: 'Tipo', key: 'tipo' },
-              { label: 'Relógio', key: 'relógio_nome' }
-            ]}
-          />
-          
-          <Button onClick={() => setShowBiometrias(true)} icon={<RefreshIcon size={16} />}>Sincronizar</Button>
-          <Button variant="danger" onClick={() => setShowInvalidRecords(true)} icon={<AlertCircleIcon size={16} />}>Inválidos</Button>
-        </div>
-      </div>
-
-      {/* Filtros Funcionais */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-        <div className="md:col-span-2">
-          <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">Pesquisar por Nome</label>
-          <Input 
-            placeholder="Digite o nome do colaborador..." 
-            value={filters.nome}
-            onChange={(e) => handleFilterChange('nome', e.target.value)}
-            icon={<SearchIcon size={18} />}
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">Data Início</label>
-          <Input 
-            type="date" 
-            value={filters.dataInicio}
-            onChange={(e) => handleFilterChange('dataInicio', e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">Data Fim</label>
-          <Input 
-            type="date" 
-            value={filters.dataFim}
-            onChange={(e) => handleFilterChange('dataFim', e.target.value)}
-          />
-        </div>
-      </div>
-
-      {/* Tabela */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-slate-50 text-slate-600 font-semibold border-b">
-              <tr>
-                <th className="px-6 py-4">Timestamp</th>
-                <th className="px-6 py-4">Colaborador</th>
-                <th className="px-6 py-4 text-center">Tipo</th>
-                <th className="px-6 py-4">Equipamento</th>
-                <th className="px-6 py-4 text-right">Ações</th>
-              </tr>
-            </thead>
+        <YScroll>
+          <table className="w-full text-left text-sm border-collapse">
             <tbody className="divide-y divide-gray-100">
-              {loading ? (
-                <tr><td colSpan="5" className="py-20 text-center"><Spinner /><p className="mt-2 text-gray-400">A procurar registos...</p></td></tr>
-              ) : data.length === 0 ? (
-                <tr><td colSpan="5" className="py-20 text-center text-gray-400 font-medium">Sem dados para este período ou filtro.</td></tr>
-              ) : data.map((row) => (
-                <tr key={row.id} className="hover:bg-blue-50/30 transition-colors group">
-                  <td className="px-6 py-4 font-medium text-slate-700">{dayjs(row.tstamp).format(DATETIME_FORMAT)}</td>
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col">
-                      <span className="font-bold text-slate-900">{row.nome}</span>
-                      <span className="text-xs text-slate-400">ID: {row.colaborador_num}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-black uppercase ${row.tipo === 'Entrada' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                      {row.tipo}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-slate-500">{row.relógio_nome || 'Web Portal'}</td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={() => { setSelectedRecord(row); setShowVisualRecords(true); }}
-                        className="p-2 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors" title="Ver Foto"
-                      >
-                        <CameraIcon size={18} />
-                      </button>
-                      <button 
-                        onClick={() => { setSelectedRecord(row); setShowFix(true); }}
-                        className="p-2 text-amber-500 hover:bg-amber-100 rounded-lg transition-colors" title="Editar"
-                      >
-                        <EditIcon size={18} />
-                      </button>
-                    </div>
+                {dataAPI.rows?.map((r, i) => (
+                  <tr key={i} className="hover:bg-gray-50">
+                  <td className="p-3 font-black text-gray-900 w-24 border-r">{r.num}</td>
+                  <td className="p-3 text-xs text-gray-500">{dayjs(r.t_stamp).format(DATETIME_FORMAT)}</td>
+                  <td className="p-3 text-[10px] font-mono opacity-50">{r.file}</td>
+                  <td className="p-3 text-right">
+                    <button onClick={() => { setModalParameters({ title: "Visualizar", path: `${FILES_URL}/static/faces/${r.file}`, width: "600px" }); showModal(); }} className="p-2 hover:bg-blue-100 rounded-full text-blue-600 transition-colors"><CameraOutlined /></button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-
-        {/* Paginação */}
-        <div className="px-6 py-4 bg-slate-50 border-t flex items-center justify-between text-slate-600">
-          <div className="text-sm">Total: <span className="font-bold">{totalRecords}</span></div>
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>Anterior</Button>
-            <span className="text-xs font-bold bg-white px-3 py-1 border rounded shadow-sm">Pág. {currentPage}</span>
-            <Button variant="ghost" onClick={() => setCurrentPage(p => p + 1)} disabled={data.length < pageSize}>Próximo</Button>
-          </div>
-        </div>
+        </YScroll>
       </div>
+    );
+};
 
-      {/* Drawers de Funcionalidade */}
-      <Drawer isOpen={showVisualRecords} onClose={() => setShowVisualRecords(false)} title="Evidência Visual">
-        {selectedRecord && (
-          <div className="space-y-4">
-            <div className="aspect-video bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden">
-               <img 
-                 src={`${FILES_URL}/${selectedRecord.foto}`} 
-                 alt="Snapshot" 
-                 className="w-full h-full object-cover" 
-                 onError={(e) => e.target.src = 'https://via.placeholder.com/400x300?text=Imagem+Nao+Disponivel'} 
-               />
+/* --- COMPONENTE REGISTOS INVÁLIDOS --- */
+const InvalidRecords = ({ openNotification }) => {
+    const [formFilter] = Form.useForm();
+    const dataAPI = useDataAPI({ payload: { url: `${API_URL}/rponto/sqlp/`, withCredentials: true, parameters: { method: "InvalidRecordsList" }, pagination: { enabled: false }, filter: { fdata: [`>=${dayjs().format(DATE_FORMAT)}`, `<=${dayjs().format(DATE_FORMAT)}`] } } });
+    const rowFn = async (dt) => {
+        const _dt = [];
+        if (!dt?.rows) return { rows: [] };
+        dt.rows.forEach((x, i) => {
+            const v = x.filename.replace("../", "").replace("./", "");
+            const r = v.split('/');
+            if (r.length >= 3) {
+                let _f = r[r.length-1].split('.');
+                _dt.push({ k: i, name: `${_f[0]}.${_f[1]}`, path: `${FILES_URL}/static/${v}`, num: r.length === 4 ? r[2] : null, type: _f[2] });
+            }
+        });
+        return { rows: _dt };
+    };
+    useEffect(() => { dataAPI.fetchPost({ rowFn }); }, []);
+    return (
+        <div className="flex flex-col h-full">
+            <div className="p-3 bg-gray-50 border-b">
+                <Form form={formFilter} layout="inline" onFinish={(v) => { dataAPI.addFilters({...v, fdata: getFilterRangeValues(v["fdata"]?.formatted)}, true); dataAPI.fetchPost({ rowFn }); }} initialValues={{ fdata: [dayjs(), dayjs()] }}>
+                    <Form.Item name="fnum"><Input placeholder="Número" size="small" style={{ width: 70 }} /></Form.Item>
+                    <Form.Item name="fdata"><RangeDateField size="small" /></Form.Item>
+                    <button type="submit" className="p-1.5 bg-white border rounded hover:bg-gray-100 transition-colors"><SearchOutlined /></button>
+                </Form>
             </div>
-            <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
-              <p className="text-sm text-blue-800"><b>Colaborador:</b> {selectedRecord.nome}</p>
-              <p className="text-sm text-blue-800"><b>Hora:</b> {dayjs(selectedRecord.tstamp).format(DATETIME_FORMAT)}</p>
-            </div>
-          </div>
-        )}
-      </Drawer>
+            <YScroll>
+                <table className="w-full text-left text-sm">
+                    <tbody className="divide-y divide-gray-100">
+                        {dataAPI.rows?.map((r) => (
+                            <tr key={r.k} className="hover:bg-amber-50/50 group">
+                                <td className="p-3 font-bold text-amber-700 w-20">{r.num || "---"}</td>
+                                <td className="p-3 text-[10px] font-mono">{r.name}</td>
+                                <td className="p-3 text-right">
+                                    <Image src={r.path} width={30} className="rounded border group-hover:scale-110 transition-transform" />
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </YScroll>
+        </div>
+    );
+};
 
-      <Drawer isOpen={showFix} onClose={() => setShowFix(false)} title="Ajustar Registo">
-        {selectedRecord && (
-          <div className="p-4 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-sm mb-4">
-             A editar picagem de <b>{selectedRecord.nome}</b> realizada em {dayjs(selectedRecord.tstamp).format(DATE_FORMAT)}.
-          </div>
-        )}
-        <Button variant="primary" className="w-full" onClick={() => setShowFix(false)}>Guardar Alterações</Button>
-      </Drawer>
-    </div>
-  );
-}
+/* --- COMPONENTE PRINCIPAL --- */
+export default () => {
+    const { auth } = useContext(AppContext);
+    const { openNotification } = useContext(LayoutContext);
+    const [showBiometrias, setShowBiometrias] = useState(false);
+    const [showInvalidRecords, setShowInvalidRecords] = useState(false);
+    const [showFix, setShowFix] = useState(false);
+    const [selectedRecord, setSelectedRecord] = useState(null);
+    const [showFilters, setShowFilters] = useState(false);
+    
+    const [rows, setRows] = useState([]); // Nome correto do estado
+    const [total, setTotal] = useState(0);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [isLoading, setIsLoading] = useState(false);
+    const pageSize = 20;
+
+    const [activeFilters, setActiveFilters] = useState({});
+    const [formFilter] = Form.useForm();
+
+    const fetchRegistos = useCallback(async (page = 1, currentFilters = activeFilters) => {
+        setIsLoading(true);
+        try {
+            const filterPayload = {};
+            
+            // Mapeia 'num' do formulário para 'fnum' do backend e adiciona wildcards
+            if (currentFilters.num) {
+                filterPayload.fnum = `%${currentFilters.num}%`;
+            }
+            
+            if (currentFilters.nome_colaborador) {
+                filterPayload.fnome = `%${currentFilters.nome_colaborador}%`;
+            }
+
+            // Tratamento do range de datas
+            if (currentFilters.fdata && currentFilters.fdata.length === 2) {
+                filterPayload.fdata = {
+                    dts: [
+                        dayjs(currentFilters.fdata[0]).startOf('day').format(DATETIME_FORMAT),
+                        dayjs(currentFilters.fdata[1]).endOf('day').format(DATETIME_FORMAT)
+                    ]
+                };
+            }
+
+            // Estrutura do payload SEM a chave 'parameters' extra
+            const payload = {
+                filter: filterPayload,
+                pagination: {
+                    enabled: true,
+                    page: page - 1, // Backend 0-indexed
+                    pageSize: pageSize
+                },
+                sort: [{ column: "dts", direction: "DESC" }]
+            };
+
+            const response = await fetchPost({ 
+                url: `${API_URL}/RegistosRH/`, 
+                parameters: payload 
+            });
+
+            if (response.data.status === "success") {
+                setRows(response.data.rows); // Antes estavas a usar setRegistos
+                setTotal(response.data.total);
+                setCurrentPage(page);
+            }
+        } catch (error) {
+            openNotification("error", "top", "Erro ao carregar", error.message);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [activeFilters]); // Dependência correta
+
+    // Handlers de interface
+    const handleApplyFilters = (values) => {
+        setActiveFilters(values);
+        setCurrentPage(1);
+        fetchRegistos(1, values);
+        setShowFilters(false);
+    };
+
+    const handleClearFilters = () => {
+        formFilter.resetFields();
+        setActiveFilters({});
+        setCurrentPage(1);
+        fetchRegistos(1, {});
+    };
+
+    const handleNextPage = () => {
+        if ((currentPage * pageSize) < total) {
+            fetchRegistos(currentPage + 1, activeFilters);
+        }
+    };
+
+    const handlePreviousPage = () => {
+        if (currentPage > 1) {
+            fetchRegistos(currentPage - 1, activeFilters);
+        }
+    };
+
+    useEffect(() => {
+        fetchRegistos(1, {});
+    }, []);
+
+
+
+    const activeFilterCount = Object.keys(activeFilters).filter(key => {
+      const val = activeFilters[key];
+      return val && val !== '' && (!Array.isArray(val) || val.length > 0);
+    }).length;
+
+    return (
+        <div className="p-4 bg-gray-50 min-h-screen">
+            <div className="max-w-full mx-auto space-y-4">
+                
+                {/* TOOLBAR */}
+                <div className="flex flex-wrap justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-200 gap-4">
+                    <div className="flex items-center gap-4">
+                        <h1 className="text-xl font-black text-gray-800 tracking-tight">Registo de Picagens</h1>
+                        <button 
+                            onClick={() => fetchRegistos(currentPage, activeFilters)} 
+                            className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+                            disabled={isLoading}
+                        >
+                            <RefreshIcon className={isLoading ? 'animate-spin' : ''} />
+                        </button>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 flex-wrap">
+                        {/* BOTÃO DE FILTROS */}
+                        <button 
+                            onClick={() => setShowFilters(!showFilters)} 
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                                activeFilterCount > 0 
+                                    ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            }`}
+                        >
+                            <FilterOutlined /> 
+                            Filtros
+                            {activeFilterCount > 0 && (
+                                <span className="bg-white text-blue-600 rounded-full px-2 py-0.5 text-xs font-black">
+                                    {activeFilterCount}
+                                </span>
+                            )}
+                        </button>
+
+                        {/* BOTÃO DE DOWNLOAD */}
+                        <DownloadReport 
+                            dataAPI={{ rows, total }}
+                            filters={activeFilters}
+                            title="Relatório de Picagens"
+                        />
+                        
+                        <button 
+                            onClick={() => setShowBiometrias(true)} 
+                            className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-bold hover:bg-black transition-all"
+                        >
+                            <CameraIcon className="w-4 h-4" /> Biometrias
+                        </button>
+                        
+                        <button 
+                            onClick={() => setShowInvalidRecords(true)} 
+                            className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-bold hover:bg-amber-600 transition-all"
+                        >
+                            <AlertIcon className="w-4 h-4" /> Inválidos
+                        </button>
+                    </div>
+                </div>
+
+                {/* PAINEL DE FILTROS */}
+                {showFilters && (
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                        <Form 
+                            form={formFilter} 
+                            layout="inline" 
+                            onFinish={handleApplyFilters}
+                            initialValues={activeFilters}
+                            className="flex flex-wrap gap-3 items-end"
+                        >
+                            <Form.Item name="num" label="Número" className="mb-0">
+                                <Input placeholder="Ex: 123" size="middle" style={{ width: 120 }} />
+                            </Form.Item>
+                            
+                            <Form.Item name="nome_colaborador" label="Nome" className="mb-0">
+                                <Input placeholder="Nome do colaborador" size="middle" style={{ width: 200 }} />
+                            </Form.Item>
+                            
+                            <Form.Item name="fdata" label="Período" className="mb-0">
+                                <RangeDateField size="middle" />
+                            </Form.Item>
+                            
+                            <div className="flex gap-2">
+                                <button 
+                                    type="submit" 
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold transition-all flex items-center gap-2"
+                                >
+                                    <SearchOutlined /> Aplicar
+                                </button>
+                                
+                                <button 
+                                    type="button"
+                                    onClick={handleClearFilters}
+                                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-bold transition-all flex items-center gap-2"
+                                >
+                                    <ClearOutlined /> Limpar
+                                </button>
+                            </div>
+                        </Form>
+                    </div>
+                )}
+
+                {/* TABELA */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead className="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th className="px-4 py-4 font-bold text-xs uppercase text-gray-500 sticky left-0 bg-gray-50 z-10 border-r">Colaborador</th>
+                                    <th className="px-4 py-4 font-bold text-xs uppercase text-gray-500">Data</th>
+                                    {[...Array(8)].map((_, i) => (
+                                        <th key={i} className="px-4 py-4 font-bold text-xs uppercase text-gray-500 text-center border-l">Pic.{i+1}</th>
+                                    ))}
+                                    <th className="px-4 py-4 font-bold text-xs uppercase text-gray-500 text-right">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {isLoading ? (
+                                    <tr>
+                                        <td colSpan="11" className="p-8 text-center">
+                                            <div className="flex flex-col items-center gap-3">
+                                                <RefreshIcon className="w-8 h-8 animate-spin text-blue-600" />
+                                                <span className="text-gray-500 font-medium">A carregar registos...</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ) : rows && rows.length > 0 ? (
+                                  rows.map((row, idx) => (
+                                    <tr key={idx} className="hover:bg-blue-50/30 transition-colors group">
+                                        <td className="px-4 py-3 sticky left-0 bg-white group-hover:bg-blue-50/30 border-r shadow-sm">
+                                            <div className="font-bold text-gray-900 text-sm leading-tight">{row.nome_colaborador || 'N/A'}</div>
+                                            <div className="text-[10px] font-mono text-blue-500 font-bold uppercase">Nº {row.num}</div>
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{dayjs(row.dts).format('DD/MM/YYYY')}</td>
+                                        {[...Array(8)].map((_, i) => {
+                                            const field = `ss_${String(i + 1).padStart(2, '0')}`;
+                                            const typeKey = `ty_${String(i + 1).padStart(2, '0')}`;
+                                            const type = row[typeKey];
+                                            const val = row[field];
+                                            return (
+                                                <td key={i} className="px-2 py-3 border-l text-center">
+                                                    {val && (
+                                                        <div className={`inline-block px-2 py-0.5 rounded border-b-2 ${type === 'in' ? 'bg-green-50 border-green-500 text-green-700' : 'bg-red-50 border-red-500 text-red-700'}`}>
+                                                            <div className="text-[10px] font-black">{dayjs(val).format('HH:mm')}</div>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            );
+                                        })}
+                                        <td className="px-4 py-3 text-right">
+                                            <button 
+                                                onClick={() => { setSelectedRecord(row); setShowFix(true); }}
+                                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                            >
+                                                <EditOutlined />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                  ))
+                                ) : (
+                                  <tr>
+                                    <td colSpan="11" className="p-8 text-center">
+                                        <div className="flex flex-col items-center gap-3">
+                                            <SearchOutlined className="text-4xl text-gray-300" />
+                                            <span className="text-gray-500 font-medium">
+                                                {activeFilterCount > 0 
+                                                    ? 'Nenhum registo encontrado com os filtros aplicados' 
+                                                    : 'Nenhum registo encontrado'
+                                                }
+                                            </span>
+                                        </div>
+                                    </td>
+                                  </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    {/* PAGINAÇÃO */}
+                    <div className="p-4 bg-gray-50 border-t flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                                Total: {total} registos
+                            </span>
+                            {activeFilterCount > 0 && (
+                                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">
+                                    ({activeFilterCount} filtro{activeFilterCount > 1 ? 's' : ''} ativo{activeFilterCount > 1 ? 's' : ''})
+                                </span>
+                            )}
+                        </div>
+                        <div className="flex gap-1 items-center">
+                            <button 
+                                onClick={handlePreviousPage} 
+                                disabled={currentPage === 1 || isLoading} 
+                                className="px-4 py-2 bg-white border rounded text-xs font-bold hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                            >
+                                Anterior
+                            </button>
+                            <span className="px-4 py-2 text-xs font-bold text-gray-600">
+                                Página {currentPage} de {Math.ceil(total / pageSize) || 1}
+                            </span>
+                            <button 
+                                onClick={handleNextPage} 
+                                disabled={(currentPage * pageSize) >= total || isLoading} 
+                                className="px-4 py-2 bg-white border rounded text-xs font-bold hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                            >
+                                Próximo
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* DRAWERS */}
+            <Drawer title="Biometrias" width={800} open={showBiometrias} onClose={() => setShowBiometrias(false)} destroyOnClose>
+                <Biometrias openNotification={openNotification} />
+            </Drawer>
+            
+            <Drawer title="Registos Inválidos" width={800} open={showInvalidRecords} onClose={() => setShowInvalidRecords(false)} destroyOnClose>
+                <InvalidRecords openNotification={openNotification} />
+            </Drawer>
+            
+            {showFix && selectedRecord && (
+              <Drawer title="Corrigir Registo" width={600} open={showFix} onClose={() => setShowFix(false)} destroyOnClose>
+                  <Fix parameters={{ row: selectedRecord }} loadParentData={() => fetchRegistos(currentPage)} openNotification={openNotification} />
+              </Drawer>
+            )}
+        </div>
+    );
+};

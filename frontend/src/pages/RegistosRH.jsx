@@ -444,24 +444,28 @@ const InvalidRecords = ({ parameters }) => {
     }
   ];
 
-  const onFilterFinish = (type, values) => {
-    switch (type) {
-      case "filter":
-        //remove empty values
-        const vals = Object.fromEntries(Object.entries({ ...defaultFilters, ...values }).filter(([_, v]) => v !== null && v !== ''));
-        const _values = {
-          ...vals,
-          fnum: getFilterValue(vals?.fnum, 'exact'),
-          fdata: getFilterRangeValues(vals["fdata"]?.formatted),
+const onFilterFinish = (type, values) => {
+  switch (type) {
+    case "filter":
+      //remove empty values
+      const vals = Object.fromEntries(Object.entries({ ...defaultFilters, ...values }).filter(([_, v]) => v !== null && v !== ''));
+      const _values = {
+        ...vals,
+        fnum: getFilterValue(vals?.fnum, 'exact'),  // Changed from 'any' to 'exact' for exact match
+        fnome: getFilterValue(vals?.fnome, 'any'),
 
-        };
-        dataAPI.addFilters(_values, true);
-        dataAPI.addParameters(defaultParameters);
-        dataAPI.first();
-        dataAPI.fetchPost({ rowFn });
-        break;
-    }
-  };
+        fdata: getFilterRangeValues(vals["fdata"]?.formatted),
+
+      };
+      dataAPI.addFilters(_values, true);
+      dataAPI.addParameters(defaultParameters);
+      dataAPI.first();
+      dataAPI.fetchPost();
+      break;
+  }
+};
+
+
   const onFilterChange = (changedValues, values) => {
     /* if ("type" in changedValues) {
         navigate("/app/picking/picknwlist", { state: { ...location?.state, ...formFilter.getFieldsValue(true), type: changedValues.type, tstamp: Date.now() }, replace: true });
