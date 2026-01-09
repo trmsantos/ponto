@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import { API_URL } from "config";
+import dayjs from "dayjs";
+import { DATETIME_FORMAT } from "config";
 
 // Ícone de Download
 const DownloadIcon = (props) => (
@@ -29,11 +31,47 @@ export default function DownloadReport({
   const handleDownload = async () => {
     setLoading(true);
     try {
+      // Prepare filter with default wide date range if fdata is missing, and map to backend expected keys
+      const exportFilter = { ...filter };
+      if (!exportFilter.fdata) {
+        exportFilter.fdata = {
+          ">=": dayjs().subtract(10, 'years').startOf('day').format(DATETIME_FORMAT),
+          "<=": dayjs().add(1, 'years').endOf('day').format(DATETIME_FORMAT)
+        };
+      }
+      
+      // Extract start and end dates from fdata (handles object or array formats)
+      let startDate, endDate;
+      if (typeof exportFilter.fdata === 'object' && !Array.isArray(exportFilter.fdata)) {
+        // Object format: { ">=": ..., "<=": ... } or { formatted: { startValue, endValue } }
+        startDate = exportFilter.fdata[">="] || exportFilter.fdata.formatted?.startValue;
+        endDate = exportFilter.fdata["<="] || exportFilter.fdata.formatted?.endValue;
+      } else if (Array.isArray(exportFilter.fdata)) {
+        // Array format: [start, end]
+        startDate = exportFilter.fdata[0];
+        endDate = exportFilter.fdata[1];
+      }
+      
+      // Fallback if not found
+      if (!startDate || !endDate) {
+        startDate = dayjs().subtract(10, 'years').startOf('day').format(DATETIME_FORMAT);
+        endDate = dayjs().add(1, 'years').endOf('day').format(DATETIME_FORMAT);
+      }
+      
+      // Map to backend expected keys
+      const finalFilter = {
+        fdateFrom: startDate,
+        fdateTo: endDate,
+        fnum: exportFilter.fnum || exportFilter.num || ''  // Handle both fnum and num
+      };
+
+      console.log("Final filter for export:", finalFilter); // Debug log
+
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          filter,
+          filter: finalFilter,
           sort,
           pagination,
           parameters: {
@@ -47,7 +85,6 @@ export default function DownloadReport({
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
       a.href = url;
       a.download = filename;
       document.body.appendChild(a);

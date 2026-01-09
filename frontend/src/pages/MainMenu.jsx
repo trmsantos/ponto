@@ -157,7 +157,7 @@ export default ({ dark = false, onToggleDrawer, handleLogout, auth }) => {
                         >
                             {/* CORREÇÃO AQUI: ROOT_URL passado como variável, sem aspas */}
                             <MenuItem onClick={() => window.location.assign(ROOT_URL)} icon={LayoutDashboard}>
-                                Aplicação Antiga
+                                Aplicação Relógio de ponto
                             </MenuItem>
                             <MenuItem onClick={() => handleNavigation('/app/rh/registos', { num: null })} icon={Clock}>
                                 Registo de Picagens

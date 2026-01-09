@@ -871,26 +871,68 @@ def RegistosRH(request, format=None):
     connection_sage = connections[connSage100cName].cursor()
     
     try:
-        f = Filters(request.data.get('filter', {}))
-        f.setParameters({
-            "fnum": {
-                "value": lambda v: v.get('fnum').upper() if v.get('fnum') else None,
-                "field": lambda k, v: f"TR.num"
-            }
-        }, True)
+        # Handle filters manually
+        filter_data = request.data.get('filter', {})
+        fnum_value = filter_data.get('fnum')
+        fdata_value = filter_data.get('fdata')
+        fnome_value = filter_data.get('fnome', '').lower()
+        
+        print(f" DEBUG filter_data: {filter_data}")
+        print(f" DEBUG fdata_value: {fdata_value}")
+        print(f"DEBUG fdata_value type: {type(fdata_value)}")
+        
+        where_clause = ""
+        parameters = {}
+        
+        if fnum_value:
+            where_clause = "WHERE TR.num LIKE %(fnum)s"
+            parameters['fnum'] = fnum_value
+        
+                # CORREÇÃO: Processar corretamente o array de datas
+        if fdata_value:
+            print(f" Processando fdata_value: {fdata_value}")
+            
+            # Se for um dicionário com 'formatted' (formato atual)
+            if isinstance(fdata_value, dict) and 'formatted' in fdata_value:
+                formatted = fdata_value['formatted']
+                if isinstance(formatted, dict):
+                    start_date = formatted.get('startValue')
+                    end_date = formatted.get('endValue')
+                    
+                    print(f" start_date extraída: {start_date}")
+                    print(f" end_date extraída: {end_date}")
+                    
+                    if start_date and end_date:
+                        and_or_where = " AND " if where_clause else "WHERE "
+                        where_clause += f"{and_or_where}TR.dts >= %(fdata_start)s AND TR.dts <= %(fdata_end)s"
+                        parameters['fdata_start'] = start_date + ' 00:00:00'  
+                        parameters['fdata_end'] = end_date + ' 23:59:59' 
+            
+            elif isinstance(fdata_value, list) and len(fdata_value) >= 2:
+                start_date = str(fdata_value[0]).replace(">=", "").strip()
+                end_date = str(fdata_value[1]).replace("<=", "").strip()
+                
+                print(f" start_date extraída: {start_date}")
+                print(f" end_date extraída: {end_date}")
+                
+                and_or_where = " AND " if where_clause else "WHERE "
+                where_clause += f"{and_or_where}TR.dts >= %(fdata_start)s AND TR.dts <= %(fdata_end)s"
+                parameters['fdata_start'] = start_date
+                parameters['fdata_end'] = end_date
+            
+            elif isinstance(fdata_value, dict):
+                start_date = fdata_value.get(">=") or fdata_value.get("formatted", [None])[0]
+                end_date = fdata_value.get("<=") or fdata_value.get("formatted", [None, None])[1]
+                
+                if start_date and end_date:
+                    and_or_where = " AND " if where_clause else "WHERE "
+                    where_clause += f"{and_or_where}TR.dts >= %(fdata_start)s AND TR.dts <= %(fdata_end)s"
+                    parameters['fdata_start'] = start_date
+                    parameters['fdata_end'] = end_date
 
-        fnum_value = request.data.get('filter', {}).get('fnum')
-        if fnum_value and '%' in str(fnum_value):
-            f.where_text = f"WHERE TR.num LIKE '{fnum_value}'"
-        else:
-            f.where()
-        f.auto()
-        f.value()
-        
-        fmulti = filterMulti(request.data['filter'], {}, False, "and" if f.hasFilters else "where", False)
-        fmulti["text"] = " "
-        
-        parameters = {**f.parameters, **fmulti['parameters']}
+        print(f" DEBUG WHERE CLAUSE: {where_clause}")
+        print(f" DEBUG PARAMS: {parameters}")
+
         dql = dbmssql.dql(request.data, False)
         
         cols = """
@@ -906,7 +948,7 @@ def RegistosRH(request, format=None):
         
         # Função de paginação segura para SQL Server
         def sql_rponto(paging_func, columns_func, sort_func):
-            offset = dql.currentPage * dql.pageSize
+            offset = (dql.currentPage - 1) * dql.pageSize  
             limit = dql.pageSize
             order_clause = sort_func(dql.sort) if dql.sort else "ORDER BY TR.dts DESC, TR.num ASC"
             paging_clause = f"OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
@@ -914,21 +956,20 @@ def RegistosRH(request, format=None):
             sql_query = f"""
                 SELECT {columns_func(dql.columns)}
                 FROM rponto.dbo.time_registration TR
-                {f.text} {fmulti['text']}
+                {where_clause}
                 {order_clause}
                 {paging_clause}
             """
-            print("DEBUG SQL:", sql_query)  # Para verificar o SQL gerado
+            print("🔧 DEBUG SQL:", sql_query)
             return sql_query
         
-        # Executa a query obtendo as linhas da página e o total global
         response_rponto = dbmssql.executeList(
             sql_rponto, 
             connection_rponto, 
-            parameters, 
-            [], 
-            None, 
-            f"select {dql.currentPage * dql.pageSize + 1}"
+            parameters,  
+            [],  #
+            None,  
+            f"select {dql.currentPage * dql.pageSize + 1}"  
         )
         
         if not response_rponto.get('rows'):
@@ -940,7 +981,6 @@ def RegistosRH(request, format=None):
         registos = response_rponto['rows']
         total_records = response_rponto.get('total', 0)
         
-        # 2. Obter Nomes do SAGE (apenas para os números presentes nesta página)
         nums_list = list(set([r['num'] for r in registos if r.get('num')]))
         funcionarios_dict = {}
         if nums_list:
@@ -956,6 +996,13 @@ def RegistosRH(request, format=None):
         registos_normalizados = []
         for registro in registos:
             primeira_picagem_dt = None
+            
+            # Limpar e normalizar os tipos de picagem
+            for i in range(1, 9):
+                ty_key = f'ty_{i:02d}'
+                if registro.get(ty_key):
+                    # Garante que é string, remove espaços e converte para minúsculas
+                    registro[ty_key] = str(registro[ty_key]).strip().lower()
             
             for i in range(1, 9):
                 ss_key = f'ss_{i:02d}'
@@ -995,9 +1042,8 @@ def RegistosRH(request, format=None):
             registos_normalizados.append(registro)
 
         # 4. Filtro manual por nome
-        fnome = request.data.get('filter', {}).get('fnome', '').lower()
-        if fnome:
-            registos_normalizados = [r for r in registos_normalizados if fnome in r.get('nome_colaborador', '').lower()]
+        if fnome_value:
+            registos_normalizados = [r for r in registos_normalizados if fnome_value in r.get('nome_colaborador', '').lower()]
             total_records = len(registos_normalizados)
 
         return Response({
@@ -1009,7 +1055,7 @@ def RegistosRH(request, format=None):
         })
         
     except Exception as error:
-        print(f"Erro em RegistosRH: {str(error)}")
+        print(f" Erro em RegistosRH: {str(error)}")
         import traceback
         traceback.print_exc()
         return Response({"status": "error", "title": str(error)})
@@ -1017,7 +1063,6 @@ def RegistosRH(request, format=None):
     finally:
         connection_rponto.close()
         connection_sage.close()
-
 
 
 def identificar_tipo_turno(hora_entrada):
@@ -1033,7 +1078,7 @@ def identificar_tipo_turno(hora_entrada):
 
 
 def EscreverTemplateExcel(request, format=None):
-    data = reqquest.data.get("filter")
+    data = request.data.get("filter")
     data_inicio = data.get("data_inicio")
     data_fim = data.get("data_fim")
     resultado_dict = self.group_picagens(data_inicio, data_fim) 
