@@ -14,19 +14,7 @@ import { RangeDateField } from 'components/FormFields';
 import { DATE_FORMAT, DATETIME_FORMAT } from "config";
 
 /**
- * Componente de Tabela Reutilizável com Filtros e Paginação
- * 
- * @param {Object} props
- * @param {Array} props.columns - Definição das colunas da tabela
- * @param {Object} props.apiConfig - Configuração da API (url, method)
- * @param {Array} props.filterFields - Campos de filtro a exibir
- * @param {Function} props.onRowEdit - Callback quando clica em editar
- * @param {Object} props.toolbarButtons - Botões extra no toolbar
- * @param {String} props.title - Título da tabela
- * @param {Number} props.pageSize - Tamanho da página (default: 20)
- * @param {Array} props.defaultSort - Ordenação padrão
- * @param {Function} props.rowClassName - Função para classe CSS da linha
- * @param {Object} props.stickyColumns - Colunas fixas {left: number, right: number}
+ * Componente de Tabela ReutilizÃ¡vel com Filtros e PaginaÃ§Ã£o
  */
 const DataTable = ({
   columns = [],
@@ -49,15 +37,15 @@ const DataTable = ({
   const [showFilters, setShowFilters] = useState(false);
   const [formFilter] = Form.useForm();
 
-  // Função principal de fetch de dados
-  const fetchData = useCallback(async (page = 1, currentFilters = activeFilters) => {
+  // FunÃ§Ã£o principal de fetch de dados
+  const fetchData = useCallback(async (page = 1, filtersToUse = {}) => {
     setIsLoading(true);
     try {
       const filterPayload = { tstamp: Date.now() };
 
       // Processar filtros dinamicamente
-      Object.keys(currentFilters).forEach(key => {
-        const value = currentFilters[key];
+      Object.keys(filtersToUse).forEach(key => {
+        const value = filtersToUse[key];
         
         // Filtro de data
         if (key === 'fdata' && Array.isArray(value) && value.length === 2) {
@@ -92,7 +80,7 @@ const DataTable = ({
         }
       });
 
-      console.log('🔍 Filtros processados:', filterPayload);
+      console.log('ðŸ" Filtros processados para DataTable:', filterPayload);
 
       const response = await fetchPost({
         url: apiConfig.url,
@@ -120,13 +108,13 @@ const DataTable = ({
     } finally {
       setIsLoading(false);
     }
-  }, [activeFilters, pageSize, apiConfig, defaultSort, openNotification]);
+  }, [pageSize, apiConfig, defaultSort, openNotification]);
 
   // Aplicar filtros
-const handleApplyFilters = (values) => {
+  const handleApplyFilters = (values) => {
     const processedValues = { ...values };
     
-    console.log('📥 Valores recebidos do Form:', values);
+    console.log('ðŸ"¥ Valores do Form antes de processar:', values);
     
     // Processar datas - se for objeto do RangeDateField, extrair formatted
     if (values.fdata && typeof values.fdata === 'object' && values.fdata.formatted) {
@@ -134,18 +122,21 @@ const handleApplyFilters = (values) => {
       if (startValue && endValue) {
         processedValues.fdata = [startValue, endValue];
       } else {
-        processedValues.fdata = undefined; // Remove se inválido
+        processedValues.fdata = undefined;
       }
     }
-    // Se já for array, mantém
+    // Se jÃ¡ for array, mantÃ©m
     else if (Array.isArray(values.fdata) && values.fdata.length === 2) {
       processedValues.fdata = values.fdata;
     }
     
-    console.log('📤 Valores processados:', processedValues);
+    console.log('ðŸ"¤ Valores do Form apÃ³s processar:', processedValues);
     
+    // ðŸ"' IMPORTANTE: Guardar filtros NO ESTADO
     setActiveFilters(processedValues);
+    
     setCurrentPage(1);
+    // Passar os filtros processados diretamente
     fetchData(1, processedValues);
     setShowFilters(false);
   };
@@ -153,12 +144,13 @@ const handleApplyFilters = (values) => {
   // Limpar filtros
   const handleClearFilters = () => {
     formFilter.resetFields();
-    setActiveFilters({});
+    const emptyFilters = {};
+    setActiveFilters(emptyFilters);
     setCurrentPage(1);
-    fetchData(1, {});
+    fetchData(1, emptyFilters);
   };
 
-  // Navegação
+  // NavegaÃ§Ã£o
   const handleNextPage = () => {
     if ((currentPage * pageSize) < total) {
       fetchData(currentPage + 1, activeFilters);
@@ -182,7 +174,7 @@ const handleApplyFilters = (values) => {
     return val && val !== '' && (!Array.isArray(val) || val.length > 0);
   }).length;
 
-  // Renderizar célula
+  // Renderizar cÃ©lula
   const renderCell = (column, row, rowIndex) => {
     if (column.render) {
       return column.render(row[column.dataIndex], row, rowIndex);
@@ -190,24 +182,44 @@ const handleApplyFilters = (values) => {
     return row[column.dataIndex];
   };
 
-return (
+  // ðŸ"' IMPORTANTE: Renderizar toolbarButtons com filtros actuais
+  const renderToolbarButtons = () => {
+    if (!toolbarButtons) return null;
+    
+    if (typeof toolbarButtons === 'function') {
+      console.log('ðŸ"¨ Renderizando toolbarButtons com activeFilters:', activeFilters);
+      return toolbarButtons(activeFilters);
+    }
+    return toolbarButtons;
+  };
+
+  return (
     <div className="flex flex-col h-full">
       {/* TOOLBAR */}
       <div className="flex flex-wrap justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-200 gap-4">
-        <div className="flex items-center gap-4">
-          <h1 className="text-xl font-black text-gray-800 tracking-tight">{title}</h1>
-          <button 
-            onClick={() => fetchData(currentPage, activeFilters)} 
-            className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
-            disabled={isLoading}
-          >
-            <RefreshIcon className={isLoading ? 'animate-spin' : ''} />
-          </button>
-        </div>
-        
         <div className="flex items-center gap-2 flex-wrap">
+          {/* BotÃ£o de Filtros */}
+          {filterFields.length > 0 && (
+            <button 
+              onClick={() => setShowFilters(!showFilters)} 
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                activeFilterCount > 0 
+                  ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              <FilterOutlined /> 
+              Filtros
+              {activeFilterCount > 0 && (
+                <span className="bg-white text-blue-600 rounded-full px-2 py-0.5 text-xs font-black">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+          )}
 
-          {typeof toolbarButtons === 'function' ? toolbarButtons(activeFilters) : toolbarButtons}
+          {/* BotÃµes customizados */}
+          {renderToolbarButtons()}
         </div>
       </div>
 
