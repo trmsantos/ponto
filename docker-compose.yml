@@ -1,0 +1,50 @@
+version: '3.9'
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: rponto_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rponto_root_pass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-rponto}
+      MYSQL_USER: ${MYSQL_USER:-rponto_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-rponto_pass}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rponto_root_pass}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rponto_web
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DJANGO_SETTINGS_MODULE=sistema.settings
+      - DB_HOST=db
+      - DB_NAME=${MYSQL_DATABASE:-rponto}
+      - DB_USER=${MYSQL_USER:-rponto_user}
+      - DB_PASSWORD=${MYSQL_PASSWORD:-rponto_pass}
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production-please}
+      - DEBUG=${DEBUG:-False}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,0.0.0.0}
+    volumes:
+      - media_data:/app/media
+      - static_data:/app/staticfiles
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+  media_data:
+  static_data:
