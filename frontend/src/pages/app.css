@@ -11,6 +11,12 @@ body {
     /* overflow: hidden; */
 }
 
+@media (max-width: 640px) {
+    .login-branding-panel {
+        display: none !important;
+    }
+}
+
 
 
 /*.ant-modal-confirm-body>.anticon+.ant-modal-confirm-title+.ant-modal-confirm-content {

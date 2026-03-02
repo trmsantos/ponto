@@ -36,7 +36,9 @@ export const AppContext = React.createContext({});
 
 
 const MainLayout = () => {
-    return (<>{(localStorage.getItem("auth")===null) ? <Suspense fallback={<Spin />}><Login /></Suspense> : <GridLayout />}</>);
+    const { auth, authLoading } = useContext(AppContext);
+    if (authLoading) return <Spin size="large" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }} />;
+    return (<>{!auth.isAuthenticated ? <Suspense fallback={<Spin />}><Login /></Suspense> : <GridLayout />}</>);
 }
 
 const RenderRouter = () => {
@@ -71,6 +73,7 @@ const App = () => {
     const [width] = useMedia();
     const submitting = useSubmitting(true);
     const [auth, setAuth] = useState({ isAuthenticated: false, });
+    const [authLoading, setAuthLoading] = useState(true);
 
     useEffect(() => {
         const _auth = json(localStorage.getItem('auth'));
@@ -80,6 +83,7 @@ const App = () => {
                 setAuth({ isAuthenticated: true, ..._auth });
             }
         }
+        setAuthLoading(false);
     }, []);
 
     const handleLogout = () => {
@@ -103,7 +107,7 @@ const App = () => {
     return (
         <BrowserRouter>
             <MediaContext.Provider value={width}>
-                <AppContext.Provider value={{ auth, setAuth, handleLogout }}>
+                <AppContext.Provider value={{ auth, setAuth, handleLogout, authLoading }}>
                     <SocketContext.Provider value={{}}>
                         <ModalProvider>
                             <RenderRouter />
